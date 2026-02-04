@@ -1,0 +1,13 @@
+{
+  "name": "name/theshipwise",
+  "type": "project",
+  "require": {
+    "facebook/php-business-sdk": "^8.0.3"
+  },
+  "authors": [
+    {
+      "name": "Maks Devda",
+      "email": "maksdevda@gmail.com"
+    }
+  ]
+}
