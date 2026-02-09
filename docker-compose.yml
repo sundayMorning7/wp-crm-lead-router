@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: wp_shipwise_db
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_DATABASE: thesleqw_car
+      MYSQL_USER: thesleqw_car
+      MYSQL_PASSWORD: eVKw@?;^s@t#
+      MYSQL_ROOT_PASSWORD: root_pass
+    ports:
+      - "3307:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+
+  wordpress:
+    image: wordpress:php8.2-apache
+    container_name: wp_shipwise_app
+    depends_on:
+      - db
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: thesleqw_car
+      WORDPRESS_DB_USER: thesleqw_car
+      WORDPRESS_DB_PASSWORD: eVKw@?;^s@t#
+    volumes:
+      - ./:/var/www/html
+      - ./cargo:/var/www/html/wp-content/themes/cargo
+      - ./leadrouter:/var/www/html/wp-content/plugins/leadrouter
+
+volumes:
+  db_data:
