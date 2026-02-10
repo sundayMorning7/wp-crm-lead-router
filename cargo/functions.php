@@ -22,6 +22,7 @@ function md_register_style_and_scripts()
     wp_enqueue_script('md_maks', 'https://unpkg.com/imask', array('md_jquery'), $ver, true);
 
     wp_enqueue_script('md_main_js', get_template_directory_uri() . '/assets/js/md_main.js', array('md_jquery'), $ver, true);
+    wp_enqueue_script('md_utm_js', get_template_directory_uri() . '/assets/js/utm.js', array(), $ver, true);
 
 
     wp_localize_script(
@@ -208,6 +209,24 @@ function custom_post_type_event()
 }
 
 add_action('init', 'custom_post_type_event', 0);
+
+add_filter('manage_edit-lead_columns', function ($columns) {
+    $columns['utm_source'] = 'UTM Source';
+    $columns['utm_medium'] = 'UTM Medium';
+    $columns['utm_campaign'] = 'UTM Campaign';
+    return $columns;
+});
+
+add_action('manage_lead_posts_custom_column', function ($column, $post_id) {
+    if (!in_array($column, ['utm_source', 'utm_medium', 'utm_campaign'], true)) {
+        return;
+    }
+
+    $value = get_post_meta($post_id, $column, true);
+    if ($value !== '') {
+        echo esc_html($value);
+    }
+}, 10, 2);
 
 
 if (function_exists('acf_add_options_page')) {

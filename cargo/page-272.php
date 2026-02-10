@@ -86,6 +86,37 @@ if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
     update_field('md_ds', htmlentities(mb_convert_encoding($_COOKIE['md_ds'], 'UTF-8', 'UTF-8'), ENT_QUOTES, 'UTF-8'), $post_id);
     update_field('md_dz', htmlentities(mb_convert_encoding($_COOKIE['md_dz'], 'UTF-8', 'UTF-8'), ENT_QUOTES, 'UTF-8'), $post_id);
 
+    $utm_fields = [
+        'utm_source',
+        'utm_medium',
+        'utm_campaign',
+        'utm_term',
+        'utm_content',
+        'utm_id',
+        'utm_source_platform',
+        'utm_creative_format',
+        'utm_marketing_tactic',
+        'gclid',
+        'fbclid',
+        'msclkid'
+    ];
+
+    $utm_payload = [];
+
+    foreach ($utm_fields as $utm_field) {
+        $utm_value = '';
+        if (isset($_POST[$utm_field])) {
+            $utm_value = sanitize_text_field($_POST[$utm_field]);
+        } elseif (isset($_COOKIE[$utm_field])) {
+            $utm_value = sanitize_text_field($_COOKIE[$utm_field]);
+        }
+
+        if ($utm_value !== '') {
+            update_field($utm_field, $utm_value, $post_id);
+            $utm_payload[$utm_field] = $utm_value;
+        }
+    }
+
 
     // === LeadRouter: створити лід у нашій таблиці + запустити broadcast ===
 
@@ -140,6 +171,10 @@ if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
 
             'dispatch_method' => 'frontend',
         ];
+
+        if (!empty($utm_payload)) {
+            $lead_data['utm_json'] = wp_json_encode($utm_payload);
+        }
 
         // 3) Створюємо лід
         $lr_lead_id = LeadRouter_Flow::create_lead_simple($lead_data);

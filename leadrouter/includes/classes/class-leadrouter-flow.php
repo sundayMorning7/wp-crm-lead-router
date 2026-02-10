@@ -972,6 +972,7 @@ class LeadRouter_Flow
             'est_ship_date'     => sanitize_text_field($data['est_ship_date'] ?? $now),
             'created_at'        => $now,
             'dispatch_method'   => sanitize_text_field($data['dispatch_method'] ?? 'manual'),
+            'utm_json'          => sanitize_text_field($data['utm_json'] ?? ''),
 
             'status'          => 'new',
             'attempts_total'  => 0,
@@ -986,7 +987,7 @@ class LeadRouter_Flow
             '%d','%s','%s','%s', '%s',
             '%s','%s','%s',
             '%s','%s','%s',
-            '%s','%s','%s','%s'
+            '%s','%s','%s','%s','%s'
         ];
 
         $ok = $wpdb->insert($table, $insert_data, $format);
