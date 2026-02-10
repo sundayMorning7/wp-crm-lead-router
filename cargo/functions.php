@@ -228,6 +228,73 @@ add_action('manage_lead_posts_custom_column', function ($column, $post_id) {
     }
 }, 10, 2);
 
+add_action('manage_posts_extra_tablenav', function ($which) {
+    if ($which !== 'top') {
+        return;
+    }
+
+    $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+    if (!$screen || $screen->post_type !== 'lead') {
+        return;
+    }
+
+    global $wpdb;
+    $meta_key = 'utm_source';
+
+    $rows = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT pm.meta_value AS source, COUNT(*) AS total
+             FROM {$wpdb->postmeta} pm
+             INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+             WHERE pm.meta_key = %s
+               AND pm.meta_value <> ''
+               AND p.post_type = %s
+             GROUP BY pm.meta_value
+             ORDER BY total DESC",
+            $meta_key,
+            'lead'
+        ),
+        ARRAY_A
+    );
+
+    $total_leads = (int)$wpdb->get_var(
+        $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = %s",
+            'lead'
+        )
+    );
+
+    $missing_utm = (int)$wpdb->get_var(
+        $wpdb->prepare(
+            "SELECT COUNT(*)
+             FROM {$wpdb->posts} p
+             LEFT JOIN {$wpdb->postmeta} pm
+               ON p.ID = pm.post_id AND pm.meta_key = %s
+             WHERE p.post_type = %s
+               AND (pm.meta_value IS NULL OR pm.meta_value = '')",
+            $meta_key,
+            'lead'
+        )
+    );
+
+    echo '<div class="alignleft actions" style="padding:6px 0;">';
+    echo '<strong>UTM Source:</strong> ';
+
+    if (empty($rows)) {
+        echo esc_html('нет данных');
+    } else {
+        $parts = [];
+        foreach ($rows as $row) {
+            $parts[] = esc_html($row['source']) . ' (' . (int)$row['total'] . ')';
+        }
+        echo implode(', ', $parts);
+    }
+
+    echo ' | <strong>Всего лидов:</strong> ' . (int)$total_leads;
+    echo ' | <strong>Без UTM:</strong> ' . (int)$missing_utm;
+    echo '</div>';
+}, 20, 1);
+
 
 if (function_exists('acf_add_options_page')) {
     acf_add_options_page([
