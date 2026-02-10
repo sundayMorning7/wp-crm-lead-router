@@ -228,6 +228,71 @@ add_action('manage_lead_posts_custom_column', function ($column, $post_id) {
     }
 }, 10, 2);
 
+add_action('admin_enqueue_scripts', function ($hook) {
+    if ($hook !== 'edit.php' || (isset($_GET['post_type']) && $_GET['post_type'] !== 'lead')) {
+        return;
+    }
+
+    wp_enqueue_script('chart-js', 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js', [], '4.4.0', true);
+    wp_enqueue_script('jquery-ui-datepicker');
+    wp_enqueue_style('jquery-ui-css', 'https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.min.css', [], '1.13.2');
+
+    wp_add_inline_style('wp-admin', '
+        .utm-stats-panel { background: #fff; border: 1px solid #ccd0d4; padding: 15px; margin: 40px 0 10px; border-radius: 4px; }
+        .utm-stats-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+        .utm-stats-header h3 { margin: 0; font-size: 14px; }
+        .utm-stats-body { margin-top: 15px; }
+        .utm-stats-body.collapsed { display: none; }
+        .utm-date-filter { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; }
+        .utm-date-filter input[type="text"] { width: 120px; }
+        .utm-stats-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .utm-stat-card { background: #f6f7f7; padding: 12px; border-radius: 4px; }
+        .utm-stat-card strong { display: block; font-size: 24px; color: #2271b1; margin-bottom: 5px; }
+        .utm-stat-card span { font-size: 12px; color: #646970; }
+        .utm-chart-container { max-width: 800px; margin: 0 auto; }
+    ');
+
+    wp_add_inline_script('jquery', '
+        jQuery(document).ready(function($) {
+            var isCollapsed = localStorage.getItem("utm_stats_collapsed") === "true";
+            if (isCollapsed) {
+                $(".utm-stats-body").addClass("collapsed");
+                $(".utm-stats-toggle").text("▶");
+            }
+
+            $(".utm-stats-header").on("click", function() {
+                $(".utm-stats-body").toggleClass("collapsed");
+                var collapsed = $(".utm-stats-body").hasClass("collapsed");
+                $(".utm-stats-toggle").text(collapsed ? "▶" : "▼");
+                localStorage.setItem("utm_stats_collapsed", collapsed);
+            });
+
+            $(".utm-date-start, .utm-date-end").datepicker({
+                dateFormat: "yy-mm-dd",
+                maxDate: 0
+            });
+
+            $(".utm-date-apply").on("click", function() {
+                var start = $(".utm-date-start").val();
+                var end = $(".utm-date-end").val();
+                var url = new URL(window.location.href);
+                if (start) url.searchParams.set("utm_start", start);
+                else url.searchParams.delete("utm_start");
+                if (end) url.searchParams.set("utm_end", end);
+                else url.searchParams.delete("utm_end");
+                window.location.href = url.toString();
+            });
+
+            $(".utm-date-reset").on("click", function() {
+                var url = new URL(window.location.href);
+                url.searchParams.delete("utm_start");
+                url.searchParams.delete("utm_end");
+                window.location.href = url.toString();
+            });
+        });
+    ');
+});
+
 add_action('manage_posts_extra_tablenav', function ($which) {
     if ($which !== 'top') {
         return;
@@ -239,8 +304,23 @@ add_action('manage_posts_extra_tablenav', function ($which) {
     }
 
     global $wpdb;
-    $meta_key = 'utm_source';
 
+    $date_start = isset($_GET['utm_start']) ? sanitize_text_field($_GET['utm_start']) : '';
+    $date_end = isset($_GET['utm_end']) ? sanitize_text_field($_GET['utm_end']) : '';
+
+    $date_clause = '';
+    $date_params = [];
+
+    if ($date_start) {
+        $date_clause .= ' AND p.post_date >= %s';
+        $date_params[] = $date_start . ' 00:00:00';
+    }
+    if ($date_end) {
+        $date_clause .= ' AND p.post_date <= %s';
+        $date_params[] = $date_end . ' 23:59:59';
+    }
+
+    $base_params = array_merge(['utm_source', 'lead'], $date_params);
     $rows = $wpdb->get_results(
         $wpdb->prepare(
             "SELECT pm.meta_value AS source, COUNT(*) AS total
@@ -249,21 +329,23 @@ add_action('manage_posts_extra_tablenav', function ($which) {
              WHERE pm.meta_key = %s
                AND pm.meta_value <> ''
                AND p.post_type = %s
+               {$date_clause}
              GROUP BY pm.meta_value
              ORDER BY total DESC",
-            $meta_key,
-            'lead'
+            ...$base_params
         ),
         ARRAY_A
     );
 
+    $count_params = array_merge(['lead'], $date_params);
     $total_leads = (int)$wpdb->get_var(
         $wpdb->prepare(
-            "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = %s",
-            'lead'
+            "SELECT COUNT(*) FROM {$wpdb->posts} p WHERE p.post_type = %s AND p.post_status NOT IN ('trash', 'auto-draft') {$date_clause}",
+            ...$count_params
         )
     );
 
+    $missing_params = array_merge(['utm_source', 'lead'], $date_params);
     $missing_utm = (int)$wpdb->get_var(
         $wpdb->prepare(
             "SELECT COUNT(*)
@@ -271,28 +353,59 @@ add_action('manage_posts_extra_tablenav', function ($which) {
              LEFT JOIN {$wpdb->postmeta} pm
                ON p.ID = pm.post_id AND pm.meta_key = %s
              WHERE p.post_type = %s
-               AND (pm.meta_value IS NULL OR pm.meta_value = '')",
-            $meta_key,
-            'lead'
+               AND (pm.meta_value IS NULL OR pm.meta_value = '')
+               {$date_clause}",
+            ...$missing_params
         )
     );
 
-    echo '<div class="alignleft actions" style="padding:6px 0;">';
-    echo '<strong>UTM Source:</strong> ';
-
-    if (empty($rows)) {
-        echo esc_html('нет данных');
-    } else {
-        $parts = [];
-        foreach ($rows as $row) {
-            $parts[] = esc_html($row['source']) . ' (' . (int)$row['total'] . ')';
-        }
-        echo implode(', ', $parts);
+    $chart_labels = [];
+    $chart_data = [];
+    foreach ($rows as $row) {
+        $chart_labels[] = $row['source'];
+        $chart_data[] = (int)$row['total'];
     }
 
-    echo ' | <strong>Всего лидов:</strong> ' . (int)$total_leads;
-    echo ' | <strong>Без UTM:</strong> ' . (int)$missing_utm;
+    echo '<div class="utm-stats-panel">';
+    echo '<div class="utm-stats-header">';
+    echo '<h3>UTM статистика лидов</h3>';
+    echo '<span class="utm-stats-toggle">▼</span>';
     echo '</div>';
+    echo '<div class="utm-stats-body">';
+
+    echo '<div class="utm-date-filter">';
+    echo '<label>От: <input type="text" class="utm-date-start" value="' . esc_attr($date_start) . '" placeholder="YYYY-MM-DD"></label>';
+    echo '<label>До: <input type="text" class="utm-date-end" value="' . esc_attr($date_end) . '" placeholder="YYYY-MM-DD"></label>';
+    echo '<button type="button" class="button utm-date-apply">Применить</button>';
+    echo '<button type="button" class="button utm-date-reset">Сбросить</button>';
+    echo '</div>';
+
+    echo '<div class="utm-stats-summary">';
+    echo '<div class="utm-stat-card"><strong>' . (int)$total_leads . '</strong><span>Всего лидов</span></div>';
+    echo '<div class="utm-stat-card"><strong>' . count($rows) . '</strong><span>Источников UTM</span></div>';
+    echo '<div class="utm-stat-card"><strong>' . (int)$missing_utm . '</strong><span>Без UTM</span></div>';
+    echo '</div>';
+
+    if (!empty($rows)) {
+        echo '<div class="utm-chart-container"><canvas id="utmChart"></canvas></div>';
+        echo '<script>';
+        echo 'document.addEventListener("DOMContentLoaded", function() {';
+        echo '  var ctx = document.getElementById("utmChart");';
+        echo '  if (ctx && typeof Chart !== "undefined") {';
+        echo '    new Chart(ctx, {';
+        echo '      type: "bar",';
+        echo '      data: {';
+        echo '        labels: ' . wp_json_encode($chart_labels) . ',';
+        echo '        datasets: [{ label: "Лиды", data: ' . wp_json_encode($chart_data) . ', backgroundColor: "rgba(34, 113, 177, 0.7)" }]';
+        echo '      },';
+        echo '      options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } } }';
+        echo '    });';
+        echo '  }';
+        echo '});';
+        echo '</script>';
+    }
+
+    echo '</div></div>';
 }, 20, 1);
 
 
