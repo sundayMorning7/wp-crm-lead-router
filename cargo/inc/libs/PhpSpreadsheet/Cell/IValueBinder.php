@@ -1,8 +1,6 @@
 <?php
 
-namespace themes\cargo\inc\libs\PhpSpreadsheet\Cell;
-
-use themes\cargo\inc\libs\PhpSpreadsheet\Cell\Cell;
+namespace PhpOffice\PhpSpreadsheet\Cell;
 
 interface IValueBinder
 {

@@ -1,8 +1,8 @@
 <?php
 
-namespace themes\cargo\inc\libs\PhpSpreadsheet\Chart;
+namespace PhpOffice\PhpSpreadsheet\Chart;
 
-use themes\cargo\inc\libs\PhpSpreadsheet\Exception as PhpSpreadsheetException;
+use PhpOffice\PhpSpreadsheet\Exception as PhpSpreadsheetException;
 
 class Exception extends PhpSpreadsheetException
 {

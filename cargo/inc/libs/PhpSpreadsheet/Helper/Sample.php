@@ -1,16 +1,15 @@
 <?php
 
-namespace themes\cargo\inc\libs\PhpSpreadsheet\Helper;
+namespace PhpOffice\PhpSpreadsheet\Helper;
 
-use themes\cargo\inc\libs\PhpSpreadsheet\Chart\Chart;
-use themes\cargo\inc\libs\PhpSpreadsheet\Chart\Renderer\MtJpGraphRenderer;
-use themes\cargo\inc\libs\PhpSpreadsheet\IOFactory;
-use themes\cargo\inc\libs\PhpSpreadsheet\Settings;
-use themes\cargo\inc\libs\PhpSpreadsheet\Shared\StringHelper;
-use themes\cargo\inc\libs\PhpSpreadsheet\Spreadsheet;
-use themes\cargo\inc\libs\PhpSpreadsheet\Helper\TextGrid;
-use themes\cargo\inc\libs\PhpSpreadsheet\Worksheet\Worksheet;
-use themes\cargo\inc\libs\PhpSpreadsheet\Writer\IWriter;
+use PhpOffice\PhpSpreadsheet\Chart\Chart;
+use PhpOffice\PhpSpreadsheet\Chart\Renderer\MtJpGraphRenderer;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Settings;
+use PhpOffice\PhpSpreadsheet\Shared\StringHelper;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PhpOffice\PhpSpreadsheet\Writer\IWriter;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use RecursiveRegexIterator;

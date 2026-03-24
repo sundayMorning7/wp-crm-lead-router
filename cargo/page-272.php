@@ -86,41 +86,175 @@ if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
     update_field('md_ds', htmlentities(mb_convert_encoding($_COOKIE['md_ds'], 'UTF-8', 'UTF-8'), ENT_QUOTES, 'UTF-8'), $post_id);
     update_field('md_dz', htmlentities(mb_convert_encoding($_COOKIE['md_dz'], 'UTF-8', 'UTF-8'), ENT_QUOTES, 'UTF-8'), $post_id);
 
-    $utm_fields = [
-        'utm_source',
-        'utm_medium',
-        'utm_campaign',
-        'utm_term',
-        'utm_content',
-        'utm_id',
-        'utm_source_platform',
-        'utm_creative_format',
-        'utm_marketing_tactic',
-        'gclid',
-        'fbclid',
-        'msclkid'
-    ];
 
-    $utm_payload = [];
-
-    foreach ($utm_fields as $utm_field) {
-        $utm_value = '';
-        if (isset($_POST[$utm_field])) {
-            $utm_value = sanitize_text_field($_POST[$utm_field]);
-        } elseif (isset($_COOKIE[$utm_field])) {
-            $utm_value = sanitize_text_field($_COOKIE[$utm_field]);
-        }
-
-        if ($utm_value !== '') {
-            update_field($utm_field, $utm_value, $post_id);
-            $utm_payload[$utm_field] = $utm_value;
-        }
-    }
+    $current_user_id = get_current_user_id();
+    /***
+     *
+     * // check sending crm flag
+     * if ($current_user_id != 1 && get_field('th_crm_flag', 22)) {
+     *
+     * // check Alaska and Hawaii
+     * if (in_array($_COOKIE['md_os'],array('AK','HI')) || in_array($_COOKIE['md_ds'],array('AK','HI'))) {
+     *
+     *
+     * $server_output = md_send_lead_pride($post_id);
+     * $answer_array = json_decode($server_output, true) ?? $server_output;
+     * $crm_answer = print_r($answer_array, true);
+     * update_field('crm_answer', $crm_answer, $post_id);
+     * update_field('broker_sent_id', 99, $post_id);
+     *
+     *
+     * if (strpos($server_output, 'OK, Lead') !== false || $answer_array['statusCode'] == 200) {
+     * update_field('crm_status', 1, $post_id);
+     * update_field('crm_attempts', 1, $post_id);
+     * update_field('crm_est_time', date('m/d/Y h:i:s a', time()), $post_id);
+     * update_field('crm_who_sent', 0, $post_id);
+     *
+     * } else {
+     * update_field('crm_status', 0, $post_id);
+     * }
+     *
+     *
+     *
+     * } else {
+     *
+     * // check send time
+     * if (md_check_send_time()) {
+     *
+     * if (md_check_day_limits()) {
+     *
+     *
+     * $name = explode(' ', str_replace('+', ' ', $name));
+     *
+     * $bodytype = str_replace('+', ' ', $_COOKIE['bodytype']);
+     * if (empty($bodytype)) {
+     * $bodytype = 'none';
+     * }
+     *
+     * $data = array(
+     * 'ip' => $_SERVER['SERVER_ADDR'],
+     * 'src' => 'pridecar',
+     * 'fn' => $name[0],
+     * 'ln' => $name[1],
+     * 'em' => $email,
+     * 'ph' => $phone,
+     * 'ps' => str_replace('-', '/', $date),
+     *
+     * 'ty' => $bodytype,
+     * 'yr' => str_replace('+', ' ', $_COOKIE['year']),
+     * 'ma' => str_replace('+', ' ', $_COOKIE['brand']),
+     * 'mo' => str_replace('+', ' ', $_COOKIE['model']),
+     *
+     *
+     * 'rc' => $_COOKIE['condition'],
+     * 'tc' => 'Open',
+     *
+     * // from
+     * 'oc' => str_replace('+', ' ', $_COOKIE['md_oc']), /// city
+     * 'os' => $_COOKIE['md_os'], ///
+     * 'oz' => $_COOKIE['md_oz'], /// zip
+     * // to
+     * 'dc' => str_replace('+', ' ', $_COOKIE['md_dc']), // city
+     * 'ds' => $_COOKIE['md_ds'], //
+     * 'dz' => $_COOKIE['md_dz'], // zip
+     *
+     * 'XAPIKEY' => 'hVwq@9pZJcY6.eG*L2mN!tQ5B8sKdX1'
+     * );
+     *
+     *
+     * //$data = array_map(fn($value) => urlencode($value), $data);
+     *
+     *
+     * $url = 'http://157.230.58.117/api/apiquote?' . http_build_query($data);
+     *
+     *
+     * $ch = curl_init();
+     * curl_setopt($ch, CURLOPT_URL, $url);
+     * curl_setopt($ch, CURLOPT_POST, 1);
+     * curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+     * curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+     * $server_output = curl_exec($ch);
+     * curl_close($ch);
+     *
+     *
+     * $content_type = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+     *
+     *
+     *
+     *
+     * if (stripos($content_type, 'text/html') !== false) {
+     *
+     *
+     * $hash = md5(uniqid('', true));
+     *
+     * $upload = wp_upload_dir();
+     *
+     * file_put_contents($upload['basedir'] . '/logs/html/lead_error_' . $post_id . '_' . $hash . '.html', $server_output);
+     *
+     *
+     * $server_output = json_encode(array(
+     * 'status' => 500,
+     * 'fileerror' => $upload['baseurl'] . '/logs/html/lead_error_' . $post_id . '_' . $hash . '.html',
+     * ));
+     * }
+     *
+     *
+     * $answer_array = json_decode($server_output, true);
+     * $crm_answer = print_r($answer_array, true);
+     *
+     * update_field('crm_answer', $crm_answer, $post_id);
+     * update_field('crm_attempts', 1, $post_id);
+     * update_field('crm_est_time', date('m/d/Y h:i:s a', time()), $post_id);
+     *
+     * if ($answer_array['status'] == 200) {
+     *
+     * update_field('crm_est_time_answer_crm', $answer_array['data']['RequestedOn'], $post_id);
+     * update_field('crm_who_sent', 0, $post_id);
+     *
+     * update_field('crm_status', 1, $post_id);
+     * } else {
+     *
+     * file_put_contents('answer_client.txt', $server_output, FILE_APPEND | LOCK_EX);
+     * update_field('crm_status', 0, $post_id);
+     * }
+     *
+     * update_field('broker_sent_id', 1, $post_id);
+     *
+     *
+     *
+     *
+     *
+     *
+     * } else {
+     * // set overlimit
+     *
+     * update_field('crm_est_time', date('m/d/Y h:i:s a', time()), $post_id);
+     * update_field('crm_status', 3, $post_id);
+     * }
+     *
+     * } else {
+     * // set await
+     *
+     * update_field('crm_attempts', 0, $post_id);
+     * update_field('crm_status', 2, $post_id);
+     * }
+     *
+     *
+     *
+     *
+     *
+     * }
+     *
+     *
+     *
+     * }
+     **/
 
 
     // === LeadRouter: створити лід у нашій таблиці + запустити broadcast ===
 
 // 0) Перевіримо, що клас і методи доступні
+
     if (!class_exists('LeadRouter_Flow') || !method_exists('LeadRouter_Flow', 'create_lead_simple') || !method_exists('LeadRouter_Flow', 'dispatch_broadcast')) {
         error_log('[LeadRouter] Flow class/methods not available');
     } else {
@@ -145,15 +279,38 @@ if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
 
         // 2) Збираємо дані (аккуратно з кукі)
         $cookie = function ($key) {
-            return isset($_COOKIE[$key]) ? sanitize_text_field($_COOKIE[$key]) : '';
+            return isset($_COOKIE[$key]) ? sanitize_text_field((string) $_COOKIE[$key]) : '';
         };
+
+        $cookie_json = function ($key) use ($cookie) {
+            $raw = $cookie($key);
+            if ($raw === '') return [];
+
+            // інколи лапки в JSON приходять екрановані
+            $raw = stripslashes($raw);
+
+            $arr = json_decode($raw, true);
+            return is_array($arr) ? $arr : [];
+        };
+
+        $utm_first = $cookie_json('md_utm_first');
+        $utm_last  = $cookie_json('md_utm_last');
+
+
+        $utm_source = $utm_last['utm_source'] ?? ($utm_first['utm_source'] ?? '');
+        $utm_medium = $utm_last['utm_medium'] ?? ($utm_first['utm_medium'] ?? '');
+        $utm_content = $utm_last['utm_content'] ?? ($utm_first['utm_content'] ?? '');
+        $utm_campaign = $utm_last['utm_campaign'] ?? ($utm_first['utm_campaign'] ?? '');
+        $utm_term = $utm_last['utm_term'] ?? ($utm_first['utm_term'] ?? '');
+
+
+
 
         $lead_data = [
             'name' => $name,
             'email' => $email,
             'phone' => $phone,
             'est_ship_date' => $est_ship_date,
-
 
             'vehicle_bodytype' => $cookie('bodytype'),
             'vehicle_year' => isset($_COOKIE['year']) && is_numeric($_COOKIE['year']) ? (int)$_COOKIE['year'] : null,
@@ -169,12 +326,15 @@ if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
             'to_state' => $cookie('md_ds'),
             'to_zip' => $cookie('md_dz'),
 
-            'dispatch_method' => 'frontend',
-        ];
+            'utm_source' => $utm_source,
+            'utm_campaign' => $utm_campaign,
+            'utm_content' => $utm_content,
+            'utm_medium' => $utm_medium,
+            'utm_term' => $utm_term,
 
-        if (!empty($utm_payload)) {
-            $lead_data['utm_json'] = wp_json_encode($utm_payload);
-        }
+            'dispatch_method' => 'frontend',
+
+        ];
 
         // 3) Створюємо лід
         $lr_lead_id = LeadRouter_Flow::create_lead_simple($lead_data);
@@ -184,26 +344,13 @@ if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
             // (опціонально) збережемо id у кукі — не заважає старому коду
             setcookie('lr_lead_id', (string)$lr_lead_id, time() + 600, '/');
 
-            // 4) Запускаємо розсилку (broadcast)
-            $res = LeadRouter_Flow::dispatch_broadcast((int)$lr_lead_id, [
-                'group_meta_key' => '_leadrouter_partner_group',
-                'statuses' => ['queued', 'sent', 'accepted'],
-                'initial_status' => 'sent',
-                'dispatch_method' => 'frontend',
-                'queue_if_closed' => true,
-            ]);
+            update_field('crm_status', 5, $post_id);
 
-            if (is_wp_error($res)) {
-                error_log('[LeadRouter] dispatch_broadcast error: ' . $res->get_error_message());
+            /*if ( is_wp_error($res) ) {
+                error_log('[LeadRouter] dispatch_broadcast error: '.$res->get_error_message());
             } else {
-                error_log('[LeadRouter] dispatch_broadcast done: ' . wp_json_encode([
-                        'lead_id' => $lr_lead_id,
-                        'sent'    => count($res['sent']),
-                        'failed'  => count($res['failed']),
-                        'total'   => count($res['all']),
-                    ]));
-            }
-
+                update_field('crm_status', 5, $post_id);
+            }*/
         }
     }
 // === /LeadRouter ===
@@ -212,7 +359,6 @@ if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
     date_default_timezone_set('US/Eastern');
     update_field('crm_create_est_time', date('m/d/Y h:i:s a', time()), $post_id);
 
-/*
     $formData = array(
         "year" => $_COOKIE['year'],
         "brand" => $_COOKIE['brand'],
@@ -245,5 +391,5 @@ if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
     setcookie("md_dz", '', time() + 400, '/');
 
 
-    wp_redirect(get_permalink(22));*/
+    wp_redirect(get_permalink(22));
 }

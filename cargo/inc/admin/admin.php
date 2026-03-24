@@ -28,7 +28,7 @@ function admin_add_datepicker($hook)
 }
 
 
-add_action('admin_enqueue_scripts', 'admin_add_datepicker');
+// add_action('admin_enqueue_scripts', 'admin_add_datepicker');
 
 
 add_action('restrict_manage_posts', function () {
@@ -185,6 +185,9 @@ function fill_views_column($colname, $post_id)
                 break;
             case 3:
                 echo '<i class="md_check_overlimit"><span>Overlimit</span></i><button class="js-sent-lead button-3" data-post-id="' . $post_id . '">Send to GC</button><button class="js-sent-lead-to-pride button-3 mod-color1" data-post-id="' . $post_id . '">Send to PRIDE</button>';
+                break;
+            case 5:
+                echo '<i class="md_check_leadrouter"><span>LeadRouter</span></i><button class="js-sent-lead button-3" data-post-id="' . $post_id . '">Re-send to GC</button><button class="js-sent-lead-to-pride button-3 mod-color1" data-post-id="' . $post_id . '">Send to PRIDE</button>';
                 break;
         }
 

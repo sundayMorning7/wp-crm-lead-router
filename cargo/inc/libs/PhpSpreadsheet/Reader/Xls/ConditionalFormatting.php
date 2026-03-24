@@ -1,16 +1,13 @@
 <?php
 
-namespace themes\cargo\inc\libs\PhpSpreadsheet\Reader\Xls;
+namespace PhpOffice\PhpSpreadsheet\Reader\Xls;
 
-use themes\cargo\inc\libs\PhpSpreadsheet\Exception as PhpSpreadsheetException;
-use themes\cargo\inc\libs\PhpSpreadsheet\Reader\Xls;
-use themes\cargo\inc\libs\PhpSpreadsheet\Reader\Xls\Biff5;
-use themes\cargo\inc\libs\PhpSpreadsheet\Reader\Xls\Biff8;
-use themes\cargo\inc\libs\PhpSpreadsheet\Reader\Xls\Color;
-use themes\cargo\inc\libs\PhpSpreadsheet\Reader\Xls\Style\FillPattern;
-use themes\cargo\inc\libs\PhpSpreadsheet\Style\Conditional;
-use themes\cargo\inc\libs\PhpSpreadsheet\Style\Fill;
-use themes\cargo\inc\libs\PhpSpreadsheet\Style\Style;
+use PhpOffice\PhpSpreadsheet\Exception as PhpSpreadsheetException;
+use PhpOffice\PhpSpreadsheet\Reader\Xls;
+use PhpOffice\PhpSpreadsheet\Reader\Xls\Style\FillPattern;
+use PhpOffice\PhpSpreadsheet\Style\Conditional;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Style\Style;
 
 class ConditionalFormatting extends Xls
 {

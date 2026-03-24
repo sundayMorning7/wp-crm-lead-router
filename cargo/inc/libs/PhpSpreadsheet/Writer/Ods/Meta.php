@@ -1,12 +1,11 @@
 <?php
 
-namespace themes\cargo\inc\libs\PhpSpreadsheet\Writer\Ods;
+namespace PhpOffice\PhpSpreadsheet\Writer\Ods;
 
-use themes\cargo\inc\libs\PhpSpreadsheet\Document\Properties;
-use themes\cargo\inc\libs\PhpSpreadsheet\Shared\Date;
-use themes\cargo\inc\libs\PhpSpreadsheet\Shared\XMLWriter;
-use themes\cargo\inc\libs\PhpSpreadsheet\Spreadsheet;
-use themes\cargo\inc\libs\PhpSpreadsheet\Writer\Ods\WriterPart;
+use PhpOffice\PhpSpreadsheet\Document\Properties;
+use PhpOffice\PhpSpreadsheet\Shared\Date;
+use PhpOffice\PhpSpreadsheet\Shared\XMLWriter;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
 
 class Meta extends WriterPart
 {

@@ -1,0 +1,4 @@
+[14-Feb-2026 17:15:22 UTC] PHP Fatal error:  Uncaught Error: Call to undefined function get_header() in /home/thesleqw/public_html/wp-content/themes/cargo/404.php:1
+Stack trace:
+#0 {main}
+  thrown in /home/thesleqw/public_html/wp-content/themes/cargo/404.php on line 1

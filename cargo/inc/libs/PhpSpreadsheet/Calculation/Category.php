@@ -1,6 +1,6 @@
 <?php
 
-namespace themes\cargo\inc\libs\PhpSpreadsheet\Calculation;
+namespace PhpOffice\PhpSpreadsheet\Calculation;
 
 abstract class Category
 {

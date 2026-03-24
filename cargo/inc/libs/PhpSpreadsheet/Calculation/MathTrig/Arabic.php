@@ -1,10 +1,10 @@
 <?php
 
-namespace themes\cargo\inc\libs\PhpSpreadsheet\Calculation\MathTrig;
+namespace PhpOffice\PhpSpreadsheet\Calculation\MathTrig;
 
-use themes\cargo\inc\libs\PhpSpreadsheet\Calculation\ArrayEnabled;
-use themes\cargo\inc\libs\PhpSpreadsheet\Calculation\Exception;
-use themes\cargo\inc\libs\PhpSpreadsheet\Calculation\Information\ExcelError;
+use PhpOffice\PhpSpreadsheet\Calculation\ArrayEnabled;
+use PhpOffice\PhpSpreadsheet\Calculation\Exception;
+use PhpOffice\PhpSpreadsheet\Calculation\Information\ExcelError;
 
 class Arabic
 {

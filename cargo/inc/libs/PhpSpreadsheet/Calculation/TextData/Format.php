@@ -1,22 +1,21 @@
 <?php
 
-namespace themes\cargo\inc\libs\PhpSpreadsheet\Calculation\TextData;
+namespace PhpOffice\PhpSpreadsheet\Calculation\TextData;
 
 use Composer\Pcre\Preg;
 use DateTimeInterface;
-use themes\cargo\inc\libs\PhpSpreadsheet\Calculation\ArrayEnabled;
-use themes\cargo\inc\libs\PhpSpreadsheet\Calculation\Calculation;
+use PhpOffice\PhpSpreadsheet\Calculation\ArrayEnabled;
+use PhpOffice\PhpSpreadsheet\Calculation\Calculation;
 use PhpOffice\PhpSpreadsheet\Calculation\DateTimeExcel;
-use themes\cargo\inc\libs\PhpSpreadsheet\Calculation\Exception as CalcExp;
-use themes\cargo\inc\libs\PhpSpreadsheet\Calculation\Functions;
-use themes\cargo\inc\libs\PhpSpreadsheet\Calculation\Information\ErrorValue;
-use themes\cargo\inc\libs\PhpSpreadsheet\Calculation\Information\ExcelError;
+use PhpOffice\PhpSpreadsheet\Calculation\Exception as CalcExp;
+use PhpOffice\PhpSpreadsheet\Calculation\Functions;
+use PhpOffice\PhpSpreadsheet\Calculation\Information\ErrorValue;
+use PhpOffice\PhpSpreadsheet\Calculation\Information\ExcelError;
 use PhpOffice\PhpSpreadsheet\Calculation\MathTrig;
-use themes\cargo\inc\libs\PhpSpreadsheet\Calculation\TextData\Helpers;
-use themes\cargo\inc\libs\PhpSpreadsheet\RichText\RichText;
-use themes\cargo\inc\libs\PhpSpreadsheet\Shared\Date;
-use themes\cargo\inc\libs\PhpSpreadsheet\Shared\StringHelper;
-use themes\cargo\inc\libs\PhpSpreadsheet\Style\NumberFormat;
+use PhpOffice\PhpSpreadsheet\RichText\RichText;
+use PhpOffice\PhpSpreadsheet\Shared\Date;
+use PhpOffice\PhpSpreadsheet\Shared\StringHelper;
+use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 
 class Format
 {
@@ -60,7 +59,7 @@ class Format
                 $round = 0 - $round;
             }
             /** @var float|int|string */
-            $value = \themes\cargo\inc\libs\PhpSpreadsheet\Calculation\MathTrig\Round::multiple($value, $round);
+            $value = MathTrig\Round::multiple($value, $round);
         }
         $mask = "{$mask};-{$mask}";
 
@@ -136,8 +135,8 @@ class Format
         $format = (string) NumberFormat::convertSystemFormats($format);
 
         if (!is_numeric($value) && Date::isDateTimeFormatCode($format) && !Preg::isMatch('/^\s*\d+(\s+\d+)+\s*$/', $value)) {
-            $value1 = \themes\cargo\inc\libs\PhpSpreadsheet\Calculation\DateTimeExcel\DateValue::fromString($value);
-            $value2 = \themes\cargo\inc\libs\PhpSpreadsheet\Calculation\DateTimeExcel\TimeValue::fromString($value);
+            $value1 = DateTimeExcel\DateValue::fromString($value);
+            $value2 = DateTimeExcel\TimeValue::fromString($value);
             /** @var float|int|string */
             $value = (is_numeric($value1) && is_numeric($value2)) ? ($value1 + $value2) : (is_numeric($value1) ? $value1 : (is_numeric($value2) ? $value2 : $value));
         }
@@ -210,14 +209,14 @@ class Format
             Functions::setReturnDateType(Functions::RETURNDATE_EXCEL);
 
             if (str_contains($value, ':')) {
-                $timeValue = Functions::scalar(\themes\cargo\inc\libs\PhpSpreadsheet\Calculation\DateTimeExcel\TimeValue::fromString($value));
+                $timeValue = Functions::scalar(DateTimeExcel\TimeValue::fromString($value));
                 if ($timeValue !== ExcelError::VALUE()) {
                     Functions::setReturnDateType($dateSetting);
 
                     return $timeValue; //* @phpstan-ignore-line
                 }
             }
-            $dateValue = Functions::scalar(\themes\cargo\inc\libs\PhpSpreadsheet\Calculation\DateTimeExcel\DateValue::fromString($value));
+            $dateValue = Functions::scalar(DateTimeExcel\DateValue::fromString($value));
             if ($dateValue !== ExcelError::VALUE()) {
                 Functions::setReturnDateType($dateSetting);
 

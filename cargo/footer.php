@@ -18,7 +18,21 @@ if (is_page(22)) {
 
 
 
-<?php if (isset($_GET['maks'])) { ?>
+<?php if (isset($_GET['maks22'])) {
+
+
+    echo 'WP timezone: ' . wp_timezone_string();
+    echo '<br>';
+    echo 'WP current time: ' . current_time('mysql');
+    echo '<br>';
+    echo 'Server time: ' . date('Y-m-d H:i:s');
+
+
+
+
+    ?>
+
+
 
 
 
@@ -71,7 +85,17 @@ if (is_page(22)) {
 
 
 
-}; ?>
+};
+
+
+
+
+
+
+?>
+
+
+
 
 </body>
 </html>

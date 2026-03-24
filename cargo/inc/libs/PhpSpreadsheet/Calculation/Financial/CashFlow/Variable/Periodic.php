@@ -1,9 +1,9 @@
 <?php
 
-namespace themes\cargo\inc\libs\PhpSpreadsheet\Calculation\Financial\CashFlow\Variable;
+namespace PhpOffice\PhpSpreadsheet\Calculation\Financial\CashFlow\Variable;
 
-use themes\cargo\inc\libs\PhpSpreadsheet\Calculation\Functions;
-use themes\cargo\inc\libs\PhpSpreadsheet\Calculation\Information\ExcelError;
+use PhpOffice\PhpSpreadsheet\Calculation\Functions;
+use PhpOffice\PhpSpreadsheet\Calculation\Information\ExcelError;
 
 class Periodic
 {

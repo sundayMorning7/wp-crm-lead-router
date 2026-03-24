@@ -90,7 +90,6 @@ jQuery(function ($) {
 
         let from_date_formated = `${month}-${day}-${year}`;
 
-
         let to_date_formated = '';
         if (to_val) {
             let to_date = new Date($.datepicker.parseDate($.datepicker._defaults.dateFormat, to_val));

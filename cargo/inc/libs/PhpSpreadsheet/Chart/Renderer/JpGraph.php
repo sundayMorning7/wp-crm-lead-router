@@ -1,8 +1,6 @@
 <?php
 
-namespace themes\cargo\inc\libs\PhpSpreadsheet\Chart\Renderer;
-
-use themes\cargo\inc\libs\PhpSpreadsheet\Chart\Renderer\JpGraphRendererBase;
+namespace PhpOffice\PhpSpreadsheet\Chart\Renderer;
 
 /**
  * Jpgraph is not oficially maintained in Composer, so the version there

@@ -136,6 +136,7 @@ function md_send_lead($post_id)
 {
 
 
+
     $name = explode(' ', get_field('name', $post_id));
 
     $data = array(
@@ -247,8 +248,6 @@ function md_send_lead_pride($post_id)
         'destination_postal_code' => get_field('md_dz', $post_id), // zip
 
         'AuthKey' => '0d5f5969-a747-4980-8851-8b67a2692d65',
-
-
 
     );
 
@@ -391,7 +390,13 @@ function md_check_day_limits()
     );
 
 
+    if (isset($_GET['maks'])) {
 
+
+        echo $sent_lead_count;
+        echo '<br />';
+
+    }
 
 
     if ($sent_lead_count < $limits[$current_day]) {
@@ -437,7 +442,7 @@ if (!wp_next_scheduled('md_send_cron_leads_hook')) {
 
 }
 
-add_action('md_send_cron_leads_hook', 'md_cron_send_leads', 10, 3);
+// add_action('md_send_cron_leads_hook', 'md_cron_send_leads', 10, 3);
 
 function md_cron_send_leads()
 {
