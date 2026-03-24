@@ -188,7 +188,7 @@ if (!function_exists('lr_build_partner_payload')) {
             $out[$their] = $value;
         }
 
-        // Постобробка: якщо є ключі типу "Vehicles.0.*", збираємо їх у масив
+        // 🧰 Постобробка: якщо є ключі типу "Vehicles.0.*", збираємо їх у масив
         $vehicles = [];
         foreach ($out as $key => $value) {
             if (strpos($key, 'Vehicles.') === 0) {

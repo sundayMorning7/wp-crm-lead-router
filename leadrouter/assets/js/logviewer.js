@@ -6,8 +6,6 @@ jQuery(function($){
         return ta.value;
     }
 
-
-
     $(document).on('click', '.js-lr-show-json', function(){
         // 1) намагаємось взяти СИРИЙ атрибут (без jQuery .data() кeшування)
         var rawAttr = $(this).attr('data-json');

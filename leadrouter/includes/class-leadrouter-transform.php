@@ -23,7 +23,7 @@ if (!class_exists('LeadRouter_Transform')) {
                 default:
                     return $value;
 
-                // базові трансформації
+                // 🧰 базові трансформації
                 case 'lower':    return mb_strtolower($value, 'UTF-8');
                 case 'upper':    return mb_strtoupper($value, 'UTF-8');
                 case 'title':    return self::mb_ucwords(mb_strtolower($value, 'UTF-8'));
@@ -31,19 +31,19 @@ if (!class_exists('LeadRouter_Transform')) {
                 case 'int':      return self::toIntOrNull($value);
                 case 'float2':   return self::toFloat2OrNull($value);
 
-                // дати
+                // 🕒 дати
                 case 'date_Ymd':      return self::dateFormatFlexible($value, 'Y-m-d');
                 case 'date_mdy':      return self::dateFormatFlexible($value, 'm/d/Y');
                 case 'date_mdy_dash': return self::dateFormatFlexible($value, 'm-d-Y'); // НОВЕ
 
-                // телефон
+                // 📞 телефон
                 case 'phone_us_dashed': return self::phoneUsDashed($value); // НОВЕ
 
-                // розділення name на first/last
+                // 🧠 розділення name на first/last
                 case 'split_name_fn': return self::splitName($value, 'fn');
                 case 'split_name_ln': return self::splitName($value, 'ln');
 
-                // специфічна логіка стану авто
+                // 🚗 специфічна логіка стану авто
                 case 'map_running':    return self::mapRunning($value);
                 case 'inop_binary':    return self::inopBinary($value);
             }

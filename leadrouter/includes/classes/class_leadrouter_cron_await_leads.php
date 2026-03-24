@@ -7,7 +7,6 @@ if ( ! class_exists( 'LeadRouter_Cron_Await_Leads' ) ) {
         const LOCK_KEY        = 'leadrouter_cron_await_lock';
         const OPTION_NEXT_TS  = 'leadrouter_cron_await_next_ts';
         const STATUS_AWAIT    = 'await';
-        const STATUS_START_ID    = 1;
 
         public static function init() {
             add_filter( 'cron_schedules', [ __CLASS__, 'add_every_minute_schedule' ] );
@@ -34,16 +33,6 @@ if ( ! class_exists( 'LeadRouter_Cron_Await_Leads' ) ) {
         public static function run() {
             global $wpdb;
 
-/*
-            $log_file = WP_CONTENT_DIR . '/leadrouter-cronawait.log';
-
-            file_put_contents(
-                $log_file,
-                'First start \n',
-                FILE_APPEND
-            );*/
-
-
             // простий лок, щоб не було накладень
             if ( get_transient( self::LOCK_KEY ) ) {
                 return;
@@ -53,33 +42,14 @@ if ( ! class_exists( 'LeadRouter_Cron_Await_Leads' ) ) {
             $now     = time();
             $next_ts = (int) get_option( self::OPTION_NEXT_TS, 0 );
 
-            $min = (int) carbon_get_theme_option('leadrouter_pause_min');
-            $max = (int) carbon_get_theme_option('leadrouter_pause_max');
-
-            if ($min <= 0) {
-                $min = 10;
-            }
-
-            if ($max <= 0) {
-                $max = 20;
-            }
-
-            if ($min > $max) {
-                $tmp = $min;
-                $min = $max;
-                $max = $tmp;
-            }
-
-
             // якщо немає запланованого часу — ставимо новий інтервал і виходимо
             if ( ! $next_ts ) {
-                $delay_min = rand( $min, $max );
+                $delay_min = rand( 15, 30 );
                 $next_ts   = $now + $delay_min * 60;
                 update_option( self::OPTION_NEXT_TS, $next_ts );
                 delete_transient( self::LOCK_KEY );
                 return;
             }
-
 
             // ще не настав час — просто чекаємо
             if ( $now < $next_ts ) {
@@ -87,35 +57,19 @@ if ( ! class_exists( 'LeadRouter_Cron_Await_Leads' ) ) {
                 return;
             }
 
-/*
-            file_put_contents(
-                $log_file,
-                'before db'. json_encode(array(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
-                FILE_APPEND
-            );*/
-
             $table = $wpdb->prefix . 'leadrouter_leads';
 
             // 1) беремо один лід зі статусом await
             $lead = $wpdb->get_row(
                 $wpdb->prepare(
                     "SELECT * FROM {$table}
-         WHERE status = %s AND id > %d
-         ORDER BY created_at ASC
-         LIMIT 1",
-                    self::STATUS_AWAIT,
-                    self::STATUS_START_ID
+                     WHERE status = %s OR response_status = %s AND id > 670
+                     ORDER BY created_at ASC
+                     LIMIT 1",
+                    self::STATUS_AWAIT
                 ),
                 ARRAY_A
             );
-
-/*
-            file_put_contents(
-                'test3',
-                'after db'. json_encode($lead, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
-                FILE_APPEND
-            );
-*/
 
             if ( ! $lead ) {
                 // немає лідів в await → обнуляємо таймер, щоб при появі нових все починалось з нуля
@@ -135,17 +89,7 @@ if ( ! class_exists( 'LeadRouter_Cron_Await_Leads' ) ) {
                 'queue_if_closed'  => true,
             ] );
 
-
-
             $lead_status = $result['summary']['lead_status'] ?? 'error';
-
-
-/*
-            file_put_contents(
-                $log_file,
-                'after broadcast'. json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
-                FILE_APPEND
-            );
 
             // 3) оновлюємо поле status ліда згідно summary
             $wpdb->update(
@@ -154,7 +98,7 @@ if ( ! class_exists( 'LeadRouter_Cron_Await_Leads' ) ) {
                 [ 'id' => $lead_id ],
                 [ '%s' ],
                 [ '%d' ]
-            );*/
+            );
 
             // 4) інтервал:
             // - для skipped / error — "обнуляємо" (на наступній хвилині призначиться новий інтервал)
@@ -162,7 +106,7 @@ if ( ! class_exists( 'LeadRouter_Cron_Await_Leads' ) ) {
             if ( in_array( $lead_status, [ 'skipped', 'error' ], true ) ) {
                 update_option( self::OPTION_NEXT_TS, 0 );
             } else {
-                $delay_min = rand( $min, $max );
+                $delay_min = rand( 15, 30 );
                 $next_ts   = $now + $delay_min * 60;
                 update_option( self::OPTION_NEXT_TS, $next_ts );
             }

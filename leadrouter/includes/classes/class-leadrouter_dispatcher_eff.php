@@ -24,6 +24,7 @@ class LeadRouter_Dispatcher_Eff
 
         $table_groups = $wpdb->prefix . 'leadrouter_groups';
         $table_logs   = $wpdb->prefix . 'leadrouter_logs';
+        $table_send_log = $wpdb->prefix . 'leadrouter_send_log';
 
         // Час у EST
         $now = isset($opts['datetime']) && $opts['datetime'] instanceof DateTimeInterface
@@ -67,9 +68,10 @@ class LeadRouter_Dispatcher_Eff
             return new WP_Error('no_active_groups', 'No active groups available');
         }
 
+
         // === КРОК 1. Денна квота ===
         // Рахуємо тільки статус group_assigned (без AK/HI).
-        $rows = $wpdb->get_results(
+        /*$rows = $wpdb->get_results(
             $wpdb->prepare("
             SELECT group_id, COUNT(*) AS cnt
             FROM {$table_logs}
@@ -79,11 +81,27 @@ class LeadRouter_Dispatcher_Eff
         ", $day_start, $day_end),
             ARRAY_A
         ) ?: [];
+        */
+
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare("
+        SELECT group_id, COUNT(DISTINCT lead_id) AS cnt
+        FROM {$table_send_log}
+        WHERE status = 'success'
+          AND attempted_at BETWEEN %s AND %s
+        GROUP BY group_id
+    ", $day_start, $day_end),
+            ARRAY_A
+        ) ?: [];
+
 
         $assigned_today = [];
         foreach ($rows as $r) {
             $assigned_today[(int)$r['group_id']] = (int)$r['cnt'];
         }
+
+
 
         // КРОК 2. Обчислення eff_tmp
         $sumW = 0;
@@ -100,12 +118,15 @@ class LeadRouter_Dispatcher_Eff
             }
         }
 
-        if (empty($eligible)) {
+
+        if (empty($eligible) && $opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
             return new WP_Error('no_capacity_today', 'All groups reached today’s capacity (EST).');
         }
-        if ($sumW <= 0) {
+        if ($sumW <= 0 && $opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
             return new WP_Error('weight_zero', 'All effective weights are zero for today (EST).');
         }
+
+
 
         // КРОК 3. Сортування за eff_tmp
         usort($eligible, fn($a, $b) => $b['eff_tmp'] <=> $a['eff_tmp']);
@@ -130,9 +151,24 @@ class LeadRouter_Dispatcher_Eff
             }
         }
 
-        if (!$picked) {
+
+
+        if (!$picked && $opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
             return new WP_Error('no_partners_in_all_groups', 'No available partners found in any eligible group right now.');
         }
+
+        // FOR Manual bulk
+        if (!$picked) {
+            $picked = [
+                'id'      => (int)$groups[0]['id'],
+                'post_id' => (int)$groups[0]['post_id'],
+                'name'          => (string)$groups[0]['name'],
+                'weight_today'        => 0,
+            ];
+        }
+
+
+
 
         // КРОК 5. Визначення виняткових штатів AK/HI
         $from_state = strtoupper(trim((string)($opts['lead_from_state'] ?? '')));
@@ -160,7 +196,7 @@ class LeadRouter_Dispatcher_Eff
             $table_logs,
             [
                 'lead_id'     => (int)$lead_id,
-                'partner_id'  => wp_json_encode(array_column($partners_for_pick, 'post_id')), // 👈 як було раніше
+                'partner_id'  => wp_json_encode(array_column($partners_for_pick, 'post_id')),
                 'group_id'    => (int)$picked['id'],
                 'assigned_at' => $assigned_at,
                 'status'      => $isExcludedState ? 'group_assigned_excluded_state' : 'group_assigned',

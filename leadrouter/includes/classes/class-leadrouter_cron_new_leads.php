@@ -10,6 +10,7 @@ if (!class_exists('LeadRouter_Cron_New_Leads')) {
         const STATUS_BUSY = 'processing_newcron'; // проміжний
         const STATUS_OK = 'sent';       // після успішної відправки
         const STATUS_FAIL = 'error';      // якщо впало
+        const STATUS_START_ID    = 1;
 
         public static function init()
         {
@@ -57,7 +58,7 @@ if (!class_exists('LeadRouter_Cron_New_Leads')) {
                      ORDER BY created_at ASC
                      LIMIT 1",
                     self::STATUS_NEW,
-                    705
+                    self::STATUS_START_ID
                 ),
                 ARRAY_A
             );
@@ -70,16 +71,16 @@ if (!class_exists('LeadRouter_Cron_New_Leads')) {
 
             $lead_id = (int)$lead['id'];
 
-            // 2) відмічаємо, що його вже обробляємо
-            //
-            /*
+           // 2) відмічаємо, що його вже обробляємо
+
+
             $wpdb->update(
                 $table,
                 ['status' => self::STATUS_BUSY],
                 ['id' => $lead_id],
                 ['%s'],
                 ['%d']
-            );*/
+            );
 
             // 3) Відправка через Flow
             $result = LeadRouter_Flow::dispatch_broadcast( $lead_id, [
@@ -89,41 +90,6 @@ if (!class_exists('LeadRouter_Cron_New_Leads')) {
                 'dispatch_method'  => 'auto_cron_new_lead',
                 'queue_if_closed'  => true,
             ]);
-
-            $log_file = WP_CONTENT_DIR . '/leadrouter-cron.log';
-            file_put_contents(
-                $log_file,
-                json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
-                FILE_APPEND
-            );
-
-
-            $lead_status = $result['summary']['lead_status'] ?? 'error';
-
-// оновлюємо саме поле status ліда
-            $wpdb->update(
-                $table,
-                [ 'status' => $lead_status ],
-                [ 'id' => $lead_id ],
-                [ '%s' ],
-                [ '%d' ]
-            );
-
-
-            // формуємо JSON
-            $log_payload = [
-                'timestamp' => current_time('mysql'),
-                'lead_id'   => $lead_id,
-                'result'    => $result,   // весь масив
-            ];
-
-
-
-            file_put_contents(
-                $log_file,
-                json_encode($log_payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
-                FILE_APPEND
-            );
 
 
 

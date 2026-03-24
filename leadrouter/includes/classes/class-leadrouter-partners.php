@@ -38,7 +38,7 @@ class LeadRouter_Partners
         $dow = (int)$now->format('N'); // 1..7 (Mon..Sun)
         [$day_start, $day_end] = self::today_window_mysql_est($now);
 
-        // За замовчуванням без 'queued'
+        // ❗️За замовчуванням без 'queued'
         $statuses = !empty($opts['statuses']) && is_array($opts['statuses'])
             ? array_values(array_filter(array_map('strval', $opts['statuses'])))
             : ['sent', 'accepted'];
@@ -46,6 +46,8 @@ class LeadRouter_Partners
         $partner_ids = !empty($opts['partner_ids'])
             ? array_values(array_filter(array_map('intval', $opts['partner_ids'])))
             : self::fetch_active_partner_ids();
+
+
 
         if (empty($partner_ids)) {
             return [];
@@ -62,14 +64,24 @@ class LeadRouter_Partners
                 continue;
             }
 
+
+/*
+            if (!self::state_allowed($pid, $lead_from_state, $lead_to_state)) {
+                continue;
+            }*/
+
             $limit = self::limit_for_day($pid, $dow);
-            if ($limit <= 0) {
+            if ($limit <= 0 && $opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
                 continue;
             }
 
-            if (!self::is_open_now_per_day($pid, $now, $dow)) {
+
+
+            if (!self::is_open_now_per_day($pid, $now, $dow) && $opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
                 continue;
             }
+
+
 
             $partners[$pid] = [
                 'partner_id'       => (int)$pid,
@@ -85,23 +97,58 @@ class LeadRouter_Partners
             ];
         }
 
+
+
         if (empty($partners)) {
             return [];
         }
 
         $used_map = self::fetch_used_today_map(array_keys($partners), $statuses, $day_start, $day_end);
 
-        foreach ($partners as $pid => &$row) {
-            $row['used_today'] = (int)($used_map[$pid] ?? 0);
-            $row['limit_left'] = max(0, $row['limit_today'] - $row['used_today']);
-            if ($row['limit_left'] <= 0) {
-                unset($partners[$pid]);
+
+        if ($opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
+
+            foreach ($partners as $pid => &$row) {
+                $row['used_today'] = (int)($used_map[$pid] ?? 0);
+                $row['limit_left'] = max(0, $row['limit_today'] - $row['used_today']);
+                if ($row['limit_left'] <= 0) {
+                    unset($partners[$pid]);
+                }
             }
+            unset($row);
         }
-        unset($row);
+
+
 
         return array_values($partners);
     }
+
+
+
+    // TODO використати цю функцію + check_partner
+    /*
+    public static function available(array $opts = []): array
+    {
+        $partner_ids = !empty($opts['partner_ids'])
+            ? array_values(array_filter(array_map('intval', $opts['partner_ids'])))
+            : self::fetch_active_partner_ids();
+
+        if (empty($partner_ids)) {
+            return [];
+        }
+
+        $rows = [];
+
+        foreach ($partner_ids as $pid) {
+            $row = self::check_partner((int)$pid, $opts);
+            if (!empty($row)) {
+                $rows[] = $row;
+            }
+        }
+
+        return $rows;
+    }*/
+
 
     /**
      * Перевірити конкретного партнера по ID з урахуванням годин/лімітів на сьогодні.
@@ -115,50 +162,60 @@ class LeadRouter_Partners
             ? DateTimeImmutable::createFromInterface($opts['now'])->setTimezone(self::tz())
             : self::now();
 
-        $require_open  = array_key_exists('require_open', $opts)  ? (bool)$opts['require_open']  : true;
-        $require_limit = array_key_exists('require_limit', $opts) ? (bool)$opts['require_limit'] : true;
-
-        $dow = (int)$now->format('N'); // 1..7
+        $dow = (int)$now->format('N'); // 1..7 (Mon..Sun)
         [$day_start, $day_end] = self::today_window_mysql_est($now);
 
-        if (!self::is_active($partner_id)) return null;
+        $lead_from_state = strtoupper(trim((string)($opts['lead_from_state'] ?? '')));
+        $lead_to_state   = strtoupper(trim((string)($opts['lead_to_state'] ?? '')));
 
-        $limit = self::limit_for_day($partner_id, $dow);
-        if ($limit <= 0 && $require_limit) return null;
-
-        $open_now = self::is_open_now_per_day($partner_id, $now, $dow);
-        if (!$open_now && $require_open) return null;
-
-        // За замовчуванням без 'queued'
+        // ❗️За замовчуванням без 'queued'
         $statuses = !empty($opts['statuses']) && is_array($opts['statuses'])
             ? array_values(array_filter(array_map('strval', $opts['statuses'])))
             : ['sent', 'accepted'];
 
+        // 1) Active
+        if (!self::is_active($partner_id)) {
+            return null;
+        }
+
+        // 2) State filter AK/HI (тепер тут, не в Flow)
+        if (!self::state_allowed($partner_id, $lead_from_state, $lead_to_state)) {
+            return null;
+        }
+
+        // 3) Daily limit for current DOW
+        $limit = self::limit_for_day($partner_id, $dow);
+        if ($limit <= 0) {
+            return null;
+        }
+
+        // 4) Working hours (per-day)
+        if (!self::is_open_now_per_day($partner_id, $now, $dow)) {
+            return null;
+        }
+
+        // 5) Used today (count rows by statuses in today window)
         $used_map = self::fetch_used_today_map([$partner_id], $statuses, $day_start, $day_end);
-        $used = (int)($used_map[$partner_id] ?? 0);
+        $used_today = (int)($used_map[$partner_id] ?? 0);
 
-        $row = [
-            'partner_id'  => (int)$partner_id,
-            'post_id'     => (int)$partner_id,
-            'name'        => get_the_title($partner_id) ?: ('Partner #' . $partner_id),
-            'open_now'    => (bool)$open_now,
-            'limit_today' => (int)$limit,
-            'used_today'  => (int)$used,
-            'limit_left'  => max(0, (int)$limit - (int)$used),
+        $limit_left = max(0, (int)$limit - $used_today);
+        if ($limit_left <= 0) {
+            return null;
+        }
+
+        return [
+            'partner_id'       => (int)$partner_id,
+            'post_id'          => (int)$partner_id,
+            'name'             => get_the_title($partner_id) ?: ('Partner #' . $partner_id),
+            'open_now'         => true,
+            'limit_today'      => (int)$limit,
+            'used_today'       => (int)$used_today,
+            'limit_left'       => (int)$limit_left,
+            'lead_from_state'  => $lead_from_state,
+            'lead_to_state'    => $lead_to_state,
         ];
-
-        if ($require_limit && $row['limit_left'] <= 0) return null;
-
-        // Прокидаємо стейти, якщо передані в opts
-        if (!empty($opts['lead_from_state'])) {
-            $row['lead_from_state'] = strtoupper(trim((string)$opts['lead_from_state']));
-        }
-        if (!empty($opts['lead_to_state'])) {
-            $row['lead_to_state'] = strtoupper(trim((string)$opts['lead_to_state']));
-        }
-
-        return $row;
     }
+
 
     /**
      * Доступні партнери конкретної групи (meta-зв’язок) з урахуванням годин/лімітів.
@@ -190,11 +247,17 @@ class LeadRouter_Partners
             ],
         ]);
 
+
+
         $ids = $q->posts ?: [];
+
+
+
         if (empty($ids)) return [];
 
         $opts2 = $opts;
         $opts2['partner_ids'] = $ids;
+
 
         // lead_from_state/to_state якщо були в $opts — дістануться у available() і впишуться в кожен row.
         return self::available($opts2);
@@ -340,4 +403,26 @@ class LeadRouter_Partners
         $e = new DateTimeImmutable($now->format('Y-m-d 23:59:59'), $tz);
         return [$s->format('Y-m-d H:i:s'), $e->format('Y-m-d H:i:s')];
     }
+
+    private static function state_allowed(int $partner_post_id, string $lead_from_state, string $lead_to_state): bool
+    {
+        $need_ak = ($lead_from_state === 'AK' || $lead_to_state === 'AK');
+        $need_hi = ($lead_from_state === 'HI' || $lead_to_state === 'HI');
+
+        if (!$need_ak && !$need_hi) return true;
+
+        if ($need_ak) {
+            $allow_ak = get_post_meta($partner_post_id, 'leadrouter_partner_allow_alaska', true);
+            if ((string)$allow_ak !== '1' && $allow_ak !== 1 && $allow_ak !== true) return false;
+        }
+
+        if ($need_hi) {
+            $allow_hi = get_post_meta($partner_post_id, 'leadrouter_partner_allow_hawaii', true);
+            if ((string)$allow_hi !== '1' && $allow_hi !== 1 && $allow_hi !== true) return false;
+        }
+
+        return true;
+    }
+
+
 }

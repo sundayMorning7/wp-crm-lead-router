@@ -12,7 +12,7 @@ function lr_sender_test_http_send(int $partner_id) {
     $mapRows       = (array)carbon_get_post_meta($partner_id, 'leadrouter_partner_map');
 
     if (empty($endpoint)) {
-        return '<strong>Endpoint не задано</strong>';
+        return '<strong>❌ Endpoint не задано</strong>';
     }
 
     // 2) Наш тестовий payload (можеш замінити на реальні дані)
@@ -60,7 +60,7 @@ function lr_sender_test_http_send(int $partner_id) {
 
     // 7) Розбір відповіді
     if (is_wp_error($response)) {
-        return '<strong>WP Error:</strong> ' . esc_html($response->get_error_message());
+        return '<strong>❌ WP Error:</strong> ' . esc_html($response->get_error_message());
     }
 
     $code = wp_remote_retrieve_response_code($response);
@@ -71,9 +71,9 @@ function lr_sender_test_http_send(int $partner_id) {
       <h2>📡 Результат тестової відправки</h2>
       <p><b>Endpoint:</b> '.esc_html($endpoint).'</p>
       <p><b>Status:</b> '.$code.' <b>Time:</b> '.$elapsed.' ms</p>
-      <h3>➡ Відправлений payload</h3>
+      <h3>➡️ Відправлений payload</h3>
       <pre>'.esc_html(json_encode($partnerPayload, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE)).'</pre>
-      <h3>⬅ Відповідь сервера</h3>
+      <h3>⬅️ Відповідь сервера</h3>
       <pre>'.esc_html($body).'</pre>
     </div>';
 }
@@ -89,7 +89,7 @@ add_shortcode('lr_sender_http_test', function($atts){
     ], $atts, 'lr_sender_http_test');
 
     $partner_id = (int)$atts['partner_id'];
-    if ($partner_id <= 0) return 'partner_id не вказаний';
+    if ($partner_id <= 0) return '❌ partner_id не вказаний';
 
     return lr_sender_test_http_send($partner_id);
 });

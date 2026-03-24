@@ -206,10 +206,15 @@ if (!class_exists('LeadRouter_Sender_Light')) {
             $lead_id  = isset($context['lead_id']) ? (int)$context['lead_id'] : 0;
             $group_id = isset($context['group_post_id']) ? (int)$context['group_post_id'] : null;
 
+            /*
+            file_put_contents(
+                __DIR__ . '/context.log',
+                print_r($context, true)
+            );*/
 
 
             /**
-             * EMAIL-ТРАНСПОРТ — МИНАЄМО prepare()
+             * ✉️ EMAIL-ТРАНСПОРТ — МИНАЄМО prepare()
              */
             if ($partner_type === 'email') {
                 $debug = [];
@@ -267,7 +272,7 @@ if (!class_exists('LeadRouter_Sender_Light')) {
             }
 
             /**
-             * HTTP / API-ТРАНСПОРТ — як було
+             * 🌐 HTTP / API-ТРАНСПОРТ — як було
              */
 
 
@@ -280,7 +285,7 @@ if (!class_exists('LeadRouter_Sender_Light')) {
             $debug = $prep['debug'];
 
 
-            // HTTP-ТРАНСПОРТ (як було)
+            // 🌐 HTTP-ТРАНСПОРТ (як було)
             $attempts = isset($context['http_retries']) ? max(0, (int)$context['http_retries']) : 2; // додаткові
             $timeout  = isset($context['timeout']) ? (int)$context['timeout'] : 20; // сек
 
@@ -492,6 +497,8 @@ if (!class_exists('LeadRouter_Sender_Light')) {
             $retry_after = self::retry_after_seconds($resp_headers);
 
             $attempted_at = current_time('mysql');
+// TODO Fix
+            //$attempted_at = (new \DateTimeImmutable('now', new \DateTimeZone('America/New_York')))->format('Y-m-d H:i:s');
 
             $data = [
                 'lead_id'          => $lead_id,
@@ -713,7 +720,7 @@ if (!class_exists('LeadRouter_Sender_Light')) {
                 ];
             }
 
-            // Тягнемо налаштування листа (complex з max(1))
+            // ⚙️ Тягнемо налаштування листа (complex з max(1))
             $settings_rows = function_exists('carbon_get_post_meta')
                 ? carbon_get_post_meta($partner_id, 'leadrouter_partner_email_settings')
                 : [];
@@ -728,7 +735,7 @@ if (!class_exists('LeadRouter_Sender_Light')) {
 
 
 
-            // Будуємо плоску карту значень для шаблонів
+            // 🔍 Будуємо плоску карту значень для шаблонів
             $flat = self::flatten_for_templates($our_payload);
 
             $render = function (string $tpl) use ($flat): string {

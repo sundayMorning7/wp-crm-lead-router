@@ -157,7 +157,7 @@ class LeadRouter_Logs_Table extends WP_List_Table
          * Точкове форматування конкретної колонки.
          * Приклад:
          * add_filter('leadrouter_logs_column_status', function($val, $row){
-         *     return $val === 'assigned' ? ' assigned' : $val;
+         *     return $val === 'assigned' ? '✅ assigned' : $val;
          * }, 10, 2);
          */
         $value = apply_filters("leadrouter_logs_column_{$column_name}", $value, $item);

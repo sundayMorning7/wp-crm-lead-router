@@ -3,7 +3,7 @@
  * Plugin Name: LeadRouter by Maks Devda
  * Plugin URI: https://example.com/leadrouter
  * Description: Розподіл лідів між партнерами за групами з логами та адмін-інтерфейсом.
- * Version: 1.1.0
+ * Version: 1.0.12
  * Author: Maks Devda
  * Author URI: https://example.com
  * License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 }
 
 
-define('LEADROUTER_VERSION', '1.1.0');
+define('LEADROUTER_VERSION', '1.0.13');
 define('LEADROUTER_PLUGIN_FILE', __FILE__);
 define('LEADROUTER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('LEADROUTER_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -51,6 +51,7 @@ require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_sender_l
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-flow.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_cron_new_leads.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_cron_await_leads.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_cron_error_leads.php';
 
 if (is_admin()) {
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/class-leadrouter_leads_table.php';
@@ -204,9 +205,6 @@ CREATE TABLE {$table_leads} (
   -- кешований підсумок, кому відправили (JSON)
   sent_summary_json LONGTEXT NULL,
 
-  -- UTM/атрибуція (JSON)
-  utm_json LONGTEXT NULL,
-
   PRIMARY KEY (id),
   KEY idx_partner_id   (partner_id),
   KEY idx_created_at   (created_at),
@@ -295,9 +293,12 @@ register_deactivation_hook(__FILE__, function () {
 /** Init: CPT + Hooks + Admin */
 add_action('init', 'leadrouter_register_cpts');
 add_action('init', ['LeadRouter_Admin', 'add_scripts']);
+add_action('init', ['LeadRouter_Admin', 'register_ajax']);
+
 LeadRouter_Hooks::init();
 LeadRouter_Cron_New_Leads::init();
 LeadRouter_Cron_Await_Leads::init();
+LeadRouter_Cron_Error_Leads::init();
 
 
 add_action('admin_menu', ['LeadRouter_Admin', 'register_menus']);
@@ -390,3 +391,159 @@ add_filter('wp_mail_return_path', function() {
     return 'api@highpriorityleads.com';
 });
 
+add_action('init', function () {
+
+    // Які параметри ловимо
+    $keys = [
+        'utm_source',
+        'utm_medium',
+        'utm_campaign',
+        'utm_content',
+        'utm_term',
+        'gclid',
+        'fbclid',
+        'ttclid',
+    ];
+
+    // Чи є хоч один з параметрів у URL
+    $has_any = false;
+    foreach ($keys as $k) {
+        if (isset($_GET[$k]) && $_GET[$k] !== '') {
+            $has_any = true;
+            break;
+        }
+    }
+    if (!$has_any) return;
+
+    // Налаштування cookie
+    $days = 30; // скільки днів пам'ятати
+    $ttl  = time() + ($days * DAY_IN_SECONDS);
+
+    $cookie_path   = COOKIEPATH ? COOKIEPATH : '/';
+    $cookie_domain = defined('COOKIE_DOMAIN') && COOKIE_DOMAIN ? COOKIE_DOMAIN : '';
+    $secure = is_ssl();
+    $httponly = true;
+
+    // helper: безпечно дістати GET значення
+    $get = function ($key) {
+        return (isset($_GET[$key]) && $_GET[$key] !== '')
+            ? sanitize_text_field(wp_unslash($_GET[$key]))
+            : '';
+    };
+
+    $normalize_source = function ($value) {
+        $v = strtolower(trim($value));
+
+        $map = [
+            'fb'        => 'Facebook',
+            'facebook'  => 'Facebook',
+
+            'ig'        => 'Instagram',
+            'instagram' => 'Instagram',
+
+            'tt'        => 'TikTok',
+            'tiktok'    => 'TikTok',
+
+            'google'    => 'Google',
+            'adwords'   => 'Google',
+        ];
+
+        return $map[$v] ?? $value;
+    };
+
+    // helper: чи всі utm_* порожні в URL
+    $utm_keys = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'];
+    $utm_all_empty = true;
+    foreach ($utm_keys as $k) {
+        if ($get($k) !== '') {
+            $utm_all_empty = false;
+            break;
+        }
+    }
+
+    // helper: якщо utm порожні — підставляємо source/medium по click id
+    $inject_source_by_clickid = function (array &$arr) use ($get, $utm_all_empty) {
+
+        if (!$utm_all_empty) {
+            return; // UTM задані — не чіпаємо
+        }
+
+        $gclid  = $get('gclid');
+        $fbclid = $get('fbclid');
+        $ttclid = $get('ttclid');
+
+        // Пріоритет (на випадок якщо раптом прийде 2 одночасно):
+        // Google > Facebook > TikTok
+        if ($gclid !== '') {
+            $arr['utm_source'] = $arr['utm_source'] ?? 'Google';
+            $arr['utm_medium'] = $arr['utm_medium'] ?? 'cpc';
+            $arr['utm_campaign'] = $arr['utm_campaign'] ?? '';
+        } elseif ($fbclid !== '') {
+            $arr['utm_source'] = $arr['utm_source'] ?? 'Facebook';
+            $arr['utm_medium'] = $arr['utm_medium'] ?? 'cpc';
+            $arr['utm_campaign'] = $arr['utm_campaign'] ?? '';
+        } elseif ($ttclid !== '') {
+            $arr['utm_source'] = $arr['utm_source'] ?? 'TikTok';
+            $arr['utm_medium'] = $arr['utm_medium'] ?? 'cpc';
+            $arr['utm_campaign'] = $arr['utm_campaign'] ?? '';
+        }
+    };
+
+    // 1) FIRST TOUCH: записуємо тільки якщо ще нема
+    $first_cookie = 'md_utm_first';
+    if (empty($_COOKIE[$first_cookie])) {
+
+        $first = [];
+        foreach ($keys as $k) {
+            $val = $get($k);
+            if ($val === '') continue;
+
+            if ($k === 'utm_source') {
+                $val = $normalize_source($val);
+            }
+
+            if ($k === 'utm_medium') {
+                $val = strtolower($val); // cpc, organic, referral
+            }
+
+            $first[$k] = $val;
+        }
+
+        // інʼєкція utm_source/utm_medium, якщо utm порожні, але є gclid/fbclid/ttclid
+        $inject_source_by_clickid($first);
+
+        if (!empty($first)) {
+            $json = wp_json_encode($first);
+            setcookie($first_cookie, $json, $ttl, $cookie_path, $cookie_domain, $secure, $httponly);
+            $_COOKIE[$first_cookie] = $json; // щоб було доступно одразу в цьому реквесті
+        }
+    }
+
+    // 2) LAST TOUCH: перезаписуємо завжди при наявності міток
+    $last_cookie = 'md_utm_last';
+
+    $last = [];
+    foreach ($keys as $k) {
+        $val = $get($k);
+        if ($val === '') continue;
+        if ($k === 'utm_source') {
+            $val = $normalize_source($val);
+        }
+
+        if ($k === 'utm_medium') {
+            $val = strtolower($val); // cpc, organic, referral
+        }
+
+        $last[$k] = $val;
+    }
+
+    // інʼєкція utm_source/utm_medium, якщо utm порожні, але є gclid/fbclid/ttclid
+    $inject_source_by_clickid($last);
+
+    if (!empty($last)) {
+        $json = wp_json_encode($last);
+        setcookie($last_cookie, $json, $ttl, $cookie_path, $cookie_domain, $secure, $httponly);
+        $_COOKIE[$last_cookie] = $json;
+    }
+
+}, 1);

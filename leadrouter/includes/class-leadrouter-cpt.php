@@ -49,6 +49,109 @@ add_action('init', 'leadrouter_register_cpts');
 function leadrouter_create_custom_fields()
 {
 
+    // OPTIONS
+
+    Container::make('theme_options', __('LeadRouter Settings', 'leadrouter'))
+        ->set_page_parent('leadrouter')
+        ->set_page_menu_title(__('Налаштування', 'leadrouter'))
+        ->set_page_file('leadrouter-settings')
+        ->add_tab(__('Основні', 'leadrouter'), array(
+
+/*
+            Field::make('number', 'leadrouter_pause_min', __('Pause between sends (MIN, sec)', 'leadrouter'))
+                ->set_attribute('min', 0)
+                ->set_default_value(5)
+                ->set_help_text('Мінімальна затримка між відправками'),
+
+            Field::make('number', 'leadrouter_pause_max', __('Pause between sends (MAX, sec)', 'leadrouter'))
+                ->set_attribute('min', 0)
+                ->set_default_value(15)
+                ->set_help_text('Максимальна затримка між відправками'),*/
+
+/*
+            Field::make('select', 'leadrouter_default_group', __('Група за замовчуванням', 'leadrouter'))
+                ->add_options(function () {
+                    $options = array(
+                        '0' => '—',
+                    );
+
+                    $groups = get_posts(array(
+                        'post_type' => 'leadrouter_group',
+                        'posts_per_page' => -1,
+                        'post_status' => 'publish',
+                        'orderby' => 'title',
+                        'order' => 'ASC',
+                    ));
+
+                    foreach ($groups as $group) {
+                        $options[$group->ID] = $group->post_title;
+                    }
+
+                    return $options;
+                })
+                ->set_default_value('0'),*/
+
+        ))
+        ->add_tab(__('Dispatch', 'leadrouter'), array(
+
+            Field::make('text', 'leadrouter_pause_min', __('Pause between sends (MIN, min)', 'leadrouter'))
+                ->set_attribute('min', 0)
+                ->set_default_value(5)
+                ->set_help_text('Мінімальна затримка між відправками в хвилинах' ),
+
+            Field::make('text', 'leadrouter_pause_max', __('Pause between sends (MAX, min)', 'leadrouter'))
+                ->set_attribute('min', 0)
+                ->set_default_value(15)
+                ->set_help_text('Максимальна затримка між відправками в хвилинах'),
+
+                Field::make('select', 'leadrouter_error_group_id', __('Група для помилкових статусів', 'leadrouter'))
+                    ->add_options(function () {
+                        $options = array(
+                            '0' => '—',
+                        );
+
+                        $groups = get_posts(array(
+                            'post_type' => 'leadrouter_group',
+                            'posts_per_page' => -1,
+                            'post_status' => 'publish',
+                            'orderby' => 'title',
+                            'order' => 'ASC',
+                        ));
+
+                        foreach ($groups as $group) {
+                            $options[$group->ID] = $group->post_title;
+                        }
+
+                        return $options;
+                    })
+                    ->set_default_value('0'),
+
+
+
+
+
+/*
+            Field::make('select', 'leadrouter_dispatch_method', __('Метод відправки', 'leadrouter'))
+                ->add_options(array(
+                    'manual' => __('Manual', 'leadrouter'),
+                    'script' => __('Script', 'leadrouter'),
+                    'cron'   => __('Cron', 'leadrouter'),
+                ))
+                ->set_default_value('script'),
+
+            Field::make('checkbox', 'leadrouter_queue_if_closed', __('Ставити в чергу, якщо партнер закритий', 'leadrouter'))
+                ->set_option_value('yes')
+                ->set_default_value('yes'),*/
+
+        ))
+        ->add_tab(__('Logs', 'leadrouter'), array(
+/*
+            Field::make('checkbox', 'leadrouter_log_enabled', __('Увімкнути логування', 'leadrouter'))
+                ->set_option_value('yes')
+                ->set_default_value('yes'),*/
+
+        ));
+
     // ===== GROUP =====
     Container::make('post_meta', __('Налаштування групи', 'leadrouter'))
         ->where('post_type', '=', 'leadrouter_group')
@@ -360,12 +463,12 @@ function leadrouter_create_custom_fields()
                         'float2'         => 'float(2)',
                         'date_Ymd'       => 'date:Y-m-d (ps)',
                         'date_mdy'       => 'date:m/d/Y (ps)',
-                        'date_mdy_dash'  => 'date → MM-DD-YYYY',
+                        'date_mdy_dash'  => 'date → MM-DD-YYYY',       // ⬅️ нове
                         'split_name_fn'  => 'split_name:fn (з name)',
                         'split_name_ln'  => 'split_name:ln (з name)',
                         'map_running'    => 'map:Running→operable, NonRunning→inoperable',
                         'inop_binary'    => 'condition→vehicle_inop (Running→0, інше→1)',
-                        'phone_us_dashed'=> 'phone → 111-111-1111',
+                        'phone_us_dashed'=> 'phone → 111-111-1111',    // ⬅️ нове
                     ])->set_default_value('none'),
                     Field::make('text', 'default_value', 'Default value')->set_width(25)
                         ->set_help_text('Підставляється, якщо значення порожнє'),

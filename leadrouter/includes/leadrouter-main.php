@@ -87,10 +87,10 @@ function leadrouter_get_sorted_groups_and_partners($group_id = NULL)
 
     }
 
-/*
+
     echo '<pre>';
     print_r($groups_and_partners);
-    echo '</pre>';*/
+    echo '</pre>';
 }
 
 

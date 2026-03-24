@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 class LeadRouter_Flow
 {
     /* ============================================================
-     * Константи — базові налаштування
+     * 🧭 Константи — базові налаштування
      * ============================================================ */
     private const CONSUME_STATUSES = ['queued', 'sent', 'accepted']; // Доступні статуси партнерів для розсилки
     private const DEFAULT_META_GROUP = '_leadrouter_partner_group';  // Ключ мети для групи партнерів
@@ -13,16 +13,27 @@ class LeadRouter_Flow
     private const RETRY_BACKOFF_SEC = [0, 2, 5];                     // Затримки між спробами у секундах
 
     /* ============================================================
-     * Логування з ротацією файлів
+     * 🪵 Логування з ротацією файлів
      * ============================================================ */
     private const LOG_DIR_NAME = 'leadrouter/logs';                  // Папка логів
     private const LOG_FILE_NAME = 'leadrouter.log';                  // Основний файл логів
     private const LOG_MAX_BYTES = 10485760;                          // 10 MB — ліміт розміру логів
 
     /** Обгортки для зручного виклику логів різних рівнів */
-    public static function log_error($msg, $ctx = []) { self::log('error', $msg, $ctx); }
-    public static function log_info($msg, $ctx = []) { self::log('info', $msg, $ctx); }
-    public static function log_debug($msg, $ctx = []) { self::log('debug', $msg, $ctx); }
+    public static function log_error($msg, $ctx = [])
+    {
+        self::log('error', $msg, $ctx);
+    }
+
+    public static function log_info($msg, $ctx = [])
+    {
+        self::log('info', $msg, $ctx);
+    }
+
+    public static function log_debug($msg, $ctx = [])
+    {
+        self::log('debug', $msg, $ctx);
+    }
 
     /** Основний логер з ротацією */
     protected static function log(string $level, string $message, array $context = []): void
@@ -30,7 +41,7 @@ class LeadRouter_Flow
         try {
             list($file, $dir) = self::log_paths();
 
-            // Створюємо папку для логів, якщо її ще нема
+            // 🔸 Створюємо папку для логів, якщо її ще нема
             if (!file_exists($dir)) {
                 if (!wp_mkdir_p($dir)) {
                     error_log('[LeadRouter][log] cannot create dir: ' . $dir);
@@ -38,13 +49,13 @@ class LeadRouter_Flow
                 }
             }
 
-            // Ротація при досягненні ліміту розміру
+            // 🔸 Ротація при досягненні ліміту розміру
             if (file_exists($file) && (@filesize($file) >= self::LOG_MAX_BYTES)) {
                 $ts = (new DateTimeImmutable('now', new DateTimeZone(self::EST_TZ)))->format('Ymd-His');
                 @rename($file, trailingslashit($dir) . 'leadrouter-' . $ts . '.log');
             }
 
-            // Додаємо рядок у лог
+            // 🕒 Додаємо рядок у лог
             $ts = self::now_mysql_est();
             $line = sprintf(
                 "%s [%s] %s%s\n",
@@ -55,7 +66,7 @@ class LeadRouter_Flow
             );
             @file_put_contents($file, $line, FILE_APPEND);
 
-            // Глобальний хук, якщо потрібно відправити лог кудись ще (Slack, Telegram тощо)
+            // 🪝 Глобальний хук, якщо потрібно відправити лог кудись ще (Slack, Telegram тощо)
             do_action('leadrouter_log', $level, $message, $context);
         } catch (\Throwable $e) {
             error_log('[LeadRouter][log] exception: ' . $e->getMessage());
@@ -72,7 +83,7 @@ class LeadRouter_Flow
     }
 
     /* ============================================================
-     * Головний метод dispatch_broadcast — відправка ліда партнерам
+     * 📤 Головний метод dispatch_broadcast — відправка ліда партнерам
      * ============================================================ */
     public static function dispatch_broadcast(int $lead_id, array $opts = [])
     {
@@ -80,13 +91,13 @@ class LeadRouter_Flow
 
         $start = microtime(true); // замір часу виконання
 
-        // Перевірка валідності lead_id
+        // 🛑 Перевірка валідності lead_id
         if ($lead_id <= 0) {
             self::log_error('dispatch_broadcast: bad lead_id', ['lead_id' => $lead_id]);
             return new WP_Error('leadrouter_flow_bad_lead', 'Некоректний lead_id');
         }
 
-        // Перевірка залежностей
+        // 🧩 Перевірка залежностей
         $dep = self::check_dependencies();
         if (is_wp_error($dep)) {
             self::log_error('dispatch_broadcast: dependencies missing', ['error' => $dep->get_error_message()]);
@@ -96,7 +107,7 @@ class LeadRouter_Flow
         do_action('leadrouter_before_dispatch', $lead_id, $opts);
 
 
-        // Дістаємо зі сховища два штати ліда (для фільтрації AK/HI по обох напрямках)
+        // 🔎 Дістаємо зі сховища два штати ліда (для фільтрації AK/HI по обох напрямках)
         $lead_row = $wpdb->get_row(
             $wpdb->prepare(
                 "SELECT from_state, to_state FROM {$wpdb->prefix}leadrouter_leads WHERE id = %d",
@@ -105,63 +116,88 @@ class LeadRouter_Flow
             ARRAY_A
         );
         $lead_from_state = strtoupper(trim((string)($lead_row['from_state'] ?? '')));
-        $lead_to_state   = strtoupper(trim((string)($lead_row['to_state'] ?? '')));
+        $lead_to_state = strtoupper(trim((string)($lead_row['to_state'] ?? '')));
 
         $opts['lead_from_state'] = $lead_from_state;
-        $opts['lead_to_state']  = $lead_to_state;
+        $opts['lead_to_state'] = $lead_to_state;
 
 
-        // Отримання групи для цього ліда і тут перерахунок eff
+        // 📦 Отримання групи для цього ліда і тут перерахунок eff
         $group = self::group_for_lead($lead_id, $opts);
-
 
 
         if (is_wp_error($group)) {
             self::log_error('group_for_lead failed', [
                 'lead_id' => $lead_id,
-                'error'   => $group->get_error_message(),
-                'data'    => $group->get_error_data()
+                'error' => $group->get_error_message(),
+                'data' => $group->get_error_data()
             ]);
+
             do_action('leadrouter_after_dispatch', $lead_id, $opts, $group);
 
-            self::mark_lead_status($lead_id, 'await', [
-                'reason'    => 'no_group_for_lead',
-                'error_msg' => $group->get_error_message(),
-            ]);
+
+            // TODO Дурна логіка відслідковування гаваїв аляски - багато дублюючих перевірок, треба переробити архітектуру
+
+
+            $from_state = strtoupper(trim((string)($opts['lead_from_state'] ?? '')));
+            $to_state = strtoupper(trim((string)($opts['lead_to_state'] ?? '')));
+            $excluded = ['AK', 'HI'];
+            $isExcludedState = in_array($from_state, $excluded, true) || in_array($to_state, $excluded, true);
+
+
+            // КРОК 6. Оновлення eff — тільки якщо НЕ AK/HI
+            if (!$isExcludedState) {
+                self::mark_lead_status($lead_id, 'await', [
+                    'reason' => 'no_group_for_lead',
+                    'error_msg' => $group->get_error_message(),
+                ]);
+            } else {
+                self::mark_lead_status($lead_id, 'state_error', [
+                    'reason' => 'state_filter_fail',
+                    'error_msg' => $group->get_error_message(),
+                ]);
+            }
+
 
             return $group;
         }
 
         $group_post_id = (int)$group['group_post_id'];
-        $group_name    = (string)($group['name'] ?? (get_the_title($group_post_id) ?: "Group #{$group_post_id}"));
+        $group_name = (string)($group['name'] ?? (get_the_title($group_post_id) ?: "Group #{$group_post_id}"));
 
 
-
-        // Отримуємо список доступних партнерів групи (+ прокидуємо стейти)
+        // 🧭 Отримуємо список доступних партнерів групи (+ прокидуємо стейти)
         $partners = LeadRouter_Partners::available_in_group(
             $group_post_id,
             [
-                'group_meta_key'   => $opts['group_meta_key'] ?? self::DEFAULT_META_GROUP,
+                'group_meta_key' => $opts['group_meta_key'] ?? self::DEFAULT_META_GROUP,
                 // У Partners::available() за замовчуванням рахуємо тільки sent/accepted,
                 // але якщо ти явно передаєш свій набір — він застосовується:
-                'statuses'         => $opts['statuses'] ?? ['sent', 'accepted'],
-                'lead_from_state'  => $lead_from_state,
-                'lead_to_state'    => $lead_to_state,
+                'statuses' => $opts['statuses'] ?? ['sent', 'accepted'],
+                'lead_from_state' => $lead_from_state,
+                'lead_to_state' => $lead_to_state,
+                'dispatch_method' => $opts['dispatch_method']
             ]
         );
 
-        // Якщо партнерів немає — ставимо AWAIT
+/*
+        file_put_contents(
+            __DIR__ . '/partners.log',
+            print_r($partners, true)
+        );*/
+
+        // 🟡 Якщо партнерів немає — ставимо AWAIT
         if (empty($partners)) {
             self::log_info('no available partners now', [
-                'lead_id'       => $lead_id,
+                'lead_id' => $lead_id,
                 'group_post_id' => $group_post_id,
-                'group_name'    => $group_name
+                'group_name' => $group_name
             ]);
 
             self::mark_lead_status($lead_id, 'await', [
-                'reason'        => 'no_available_partners_now',
+                'reason' => 'no_available_partners_now',
                 'group_post_id' => $group_post_id,
-                'group_name'    => $group_name,
+                'group_name' => $group_name,
             ]);
 
             $err = new WP_Error(
@@ -173,117 +209,121 @@ class LeadRouter_Flow
             return $err;
         }
 
-        // Базові змінні для відправки
-        $initial_status  = (string)($opts['initial_status']  ?? 'sent');
+        // ⚙️ Базові змінні для відправки
+        $initial_status = (string)($opts['initial_status'] ?? 'sent');
         $dispatch_method = (string)($opts['dispatch_method'] ?? 'none');
 
-        // Жорстка модель: черги не використовуємо — закриті/без ліміту просто пропускаємо
+        // 🔒 Жорстка модель: черги не використовуємо — закриті/без ліміту просто пропускаємо
         $results = [
-            'lead_id'       => $lead_id,
+            'lead_id' => $lead_id,
             'group_post_id' => $group_post_id,
-            'group_name'    => $group_name,
-            'sent'          => [],
-            'failed'        => [],
-            'all'           => [],
+            'group_name' => $group_name,
+            'sent' => [],
+            'failed' => [],
+            'all' => [],
         ];
 
         /* ============================================================
-         * Основний цикл відправки по партнерах
+         * 🔁 Основний цикл відправки по партнерах
          * ============================================================ */
         foreach ($partners as $p) {
-            $pid   = (int)($p['partner_id'] ?? 0);
+            $pid = (int)($p['partner_id'] ?? 0);
             $pname = (string)($p['name'] ?? (get_the_title($pid) ?: "Partner #{$pid}"));
+
+            $p['group_post_id'] = $group_post_id;
 
 
             // TODO подвійне логування
-            // Фільтрація партнера — якщо причина повернеться, партнер пропускається
+            // 🧰 Фільтрація партнера — якщо причина повернеться, партнер пропускається
             $reason = self::filter_partner($p); // тут має перевіряти і from_state, і to_state
+
+
             if ($reason) {
                 $log_id = self::log_attempt($lead_id, $pid, 'skipped', [
-                    'group_post_id'     => $group_post_id,
-                    'group_name'        => $group_name,
-                    'dispatch_method'   => $dispatch_method,
-                    'error_code'        => $reason,
-                    'is_skipped'        => 1,
-                    'lead_from_state'   => $lead_from_state,
-                    'lead_to_state'     => $lead_to_state,
+                    'group_post_id' => $group_post_id,
+                    'group_name' => $group_name,
+                    'dispatch_method' => $dispatch_method,
+                    'error_code' => $reason,
+                    'is_skipped' => 1,
+                    'lead_from_state' => $lead_from_state,
+                    'lead_to_state' => $lead_to_state,
                 ]);
                 $results['failed'][] = [
-                    'partner_id'   => $pid,
+                    'partner_id' => $pid,
                     'partner_name' => $pname,
-                    'status'       => 'skipped',
-                    'log_id'       => is_wp_error($log_id) ? 0 : (int)$log_id,
-                    'error'        => $reason
+                    'status' => 'skipped',
+                    'log_id' => is_wp_error($log_id) ? 0 : (int)$log_id,
+                    'error' => $reason
                 ];
                 $results['all'][] = end($results['failed']);
                 continue;
             }
 
-            // Закритий або без ліміту — просто пропускаємо (без постановки в чергу)
-            if (empty($p['open_now']) || (int)$p['limit_left'] <= 0) {
+            // 🕒 Закритий або без ліміту — просто пропускаємо (без постановки в чергу)
+            if ((empty($p['open_now']) || (int)$p['limit_left'] <= 0) && ($opts['dispatch_method'] != 'manual_bulk') && $opts['dispatch_method'] != 'auto_cron_error_lead') {
                 $err_code = empty($p['open_now']) ? 'partner_closed' : 'limit_exceeded';
                 $log_id = self::log_attempt($lead_id, $pid, 'skipped', [
-                    'group_post_id'     => $group_post_id,
-                    'group_name'        => $group_name,
-                    'dispatch_method'   => $dispatch_method,
-                    'meta'              => self::compact_partner_meta($p),
-                    'error_code'        => $err_code,
-                    'is_skipped'        => 1,
-                    'lead_from_state'   => $lead_from_state,
-                    'lead_to_state'     => $lead_to_state,
+                    'group_post_id' => $group_post_id,
+                    'group_name' => $group_name,
+                    'dispatch_method' => $dispatch_method,
+                    'meta' => self::compact_partner_meta($p),
+                    'error_code' => $err_code,
+                    'is_skipped' => 1,
+                    'lead_from_state' => $lead_from_state,
+                    'lead_to_state' => $lead_to_state,
                 ]);
                 $results['failed'][] = [
-                    'partner_id'   => $pid,
+                    'partner_id' => $pid,
                     'partner_name' => $pname,
-                    'status'       => 'skipped',
-                    'log_id'       => is_wp_error($log_id) ? 0 : (int)$log_id,
-                    'error'        => $err_code
+                    'status' => 'skipped',
+                    'log_id' => is_wp_error($log_id) ? 0 : (int)$log_id,
+                    'error' => $err_code
                 ];
                 $results['all'][] = end($results['failed']);
                 continue;
             }
 
-            // Пряма відправка з ретраями
+            // 📡 Пряма відправка з ретраями
             $t0 = microtime(true);
             $send_res = self::send_with_retries($lead_id, $p, $dispatch_method);
             $runtime = round((microtime(true) - $t0) * 1000, 2);
 
             $is_error = ($send_res instanceof WP_Error);
-            $err_msg  = $is_error ? $send_res->get_error_message() : null;
+            $err_msg = $is_error ? $send_res->get_error_message() : null;
             $attempts = $is_error ? 1 : ($send_res['attempts'] ?? 1);
 
             $log_status = $is_error ? 'failed' : $initial_status;
             $delivery = $is_error
                 ? [
-                    'error'       => ($err_msg ?: 'unknown_error'),
+                    'error' => ($err_msg ?: 'unknown_error'),
                     'status_code' => is_wp_error($send_res) ? ($send_res->get_error_data()['status_code'] ?? null) : null,
                 ]
                 : [
-                    'ok'          => true,
-                    'attempts'    => $attempts,
-                    'runtime_ms'  => $runtime,
+                    'ok' => true,
+                    'attempts' => $attempts,
+                    'runtime_ms' => $runtime,
                     'status_code' => $send_res['status_code'] ?? null,
                     'external_id' => $send_res['external_id'] ?? null,
                 ];
 
-            // Логування спроби
+            // 📝 Логування спроби
             $log_id = self::log_attempt($lead_id, $pid, $log_status, [
-                'group_post_id'     => $group_post_id,
-                'group_name'        => $group_name,
-                'dispatch_method'   => $dispatch_method,
-                'meta'              => self::compact_partner_meta($p),
-                'delivery'          => $delivery,
-                'error_code'        => $is_error ? 'internal_error' : null,
-                'lead_from_state'   => $lead_from_state,
-                'lead_to_state'     => $lead_to_state,
+                'group_post_id' => $group_post_id,
+                'group_name' => $group_name,
+                'dispatch_method' => $dispatch_method,
+                'meta' => self::compact_partner_meta($p),
+                'delivery' => $delivery,
+                'error_code' => $is_error ? 'internal_error' : null,
+                'lead_from_state' => $lead_from_state,
+                'lead_to_state' => $lead_to_state,
             ]);
 
             $entry = [
-                'partner_id'   => $pid,
+                'partner_id' => $pid,
                 'partner_name' => $pname,
-                'status'       => $log_status,
-                'log_id'       => is_wp_error($log_id) ? 0 : (int)$log_id,
-                'error'        => $err_msg
+                'status' => $log_status,
+                'log_id' => is_wp_error($log_id) ? 0 : (int)$log_id,
+                'error' => $err_msg
             ];
 
             $results['all'][] = $entry;
@@ -292,27 +332,27 @@ class LeadRouter_Flow
         }
 
         /* ============================================================
-         * Фінальний статус ліда після відправки (fixed)
-         * ============================================================ */
+ * 📊 Фінальний статус ліда після відправки (fixed)
+ * ============================================================ */
         {
-            $cnt_sent    = count($results['sent']);
+            $cnt_sent = count($results['sent']);
             $cnt_failedF = 0; // реальні фейли
             $cnt_skipped = 0; // пропуски (закрито, ліміти тощо)
 
             foreach ($results['all'] as $e) {
                 $st = $e['status'] ?? '';
-                if ($st === 'failed')  $cnt_failedF++;
+                if ($st === 'failed') $cnt_failedF++;
                 if ($st === 'skipped') $cnt_skipped++;
             }
 
             $cnt_attempted = $cnt_sent + $cnt_failedF;
 
             if ($cnt_sent > 0) {
-                // Є хоча б один успішний партнер → processed
-                self::mark_lead_status($lead_id, 'processed', []);
+                // ✅ Є хоча б один успішний партнер → processed
+                self::mark_lead_status($lead_id, 'sent', []);
 
                 error_log('update_sent_summary before: lead_id=' . $lead_id);
-                // Оновлюємо sent_summary_json у таблиці лідів
+                // 🧾 Оновлюємо sent_summary_json у таблиці лідів
                 if (class_exists('LeadRouter_Leads')) {
                     $partners_summary = [];
 
@@ -321,9 +361,9 @@ class LeadRouter_Flow
                     foreach ($results['sent'] as $row) {
                         $partners_summary[] = [
                             'partner_id' => (int)($row['partner_id'] ?? 0),
-                            'group_id'   => isset($group_post_id) ? (int)$group_post_id : 0,
-                            'status'     => (string)($row['status'] ?? 'sent'),
-                            'method'     => (string)$dispatch_method,
+                            'group_id' => isset($group_post_id) ? (int)$group_post_id : 0,
+                            'status' => (string)($row['status'] ?? 'sent'),
+                            'method' => (string)$dispatch_method,
                         ];
                     }
 
@@ -332,17 +372,12 @@ class LeadRouter_Flow
                     }
                 }
             } elseif ($cnt_attempted === 0) {
-                // Жодної спроби → всі пропущені → await
-                if ($cnt_skipped > 0) {
-                    self::mark_lead_status($lead_id, 'new', ['reason' => 'no_attempts_all_skipped']);
-                } else {
-                    self::mark_lead_status($lead_id, 'await', ['reason' => 'no_attempts_all_skipped']);
-                }
-
+                // 🕒 Жодної спроби → всі пропущені → await
+                self::mark_lead_status($lead_id, 'state_error', ['reason' => 'no_attempts_all_skipped']);
             } else {
-                // Були спроби → всі впали → error
+                // ❌ Були спроби → всі впали → error
                 self::mark_lead_status($lead_id, 'error', [
-                    'reason'       => 'all_attempts_failed',
+                    'reason' => 'all_attempts_failed',
                     'failed_count' => $cnt_failedF,
                 ]);
             }
@@ -351,16 +386,16 @@ class LeadRouter_Flow
 
         $results['summary'] = self::build_summary_from_result($results);
 
-        // Підсумковий лог з таймінгом
+        // 🧭 Підсумковий лог з таймінгом
         self::log_info('dispatch_broadcast completed', [
-            'lead_id'        => $lead_id,
+            'lead_id' => $lead_id,
             'partners_total' => count($results['all']),
-            'sent'           => count($results['sent']),
-            'failed'         => count($results['failed']),
-            'runtime_ms'     => round((microtime(true) - $start) * 1000, 2)
+            'sent' => count($results['sent']),
+            'failed' => count($results['failed']),
+            'runtime_ms' => round((microtime(true) - $start) * 1000, 2)
         ]);
 
-
+/*
         $log_file = WP_CONTENT_DIR . '/leadrouter-flow.log';
 
         file_put_contents(
@@ -368,19 +403,20 @@ class LeadRouter_Flow
             json_encode($results, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
             FILE_APPEND
         );
-
+*/
 
         do_action('leadrouter_after_dispatch', $lead_id, $opts, $results);
         return $results;
     }
 
-    private static function build_summary_from_result(array $result, bool $is_ak_hi = false): array {
-        $sent   = is_array($result['sent']  ?? null) ? $result['sent']  : [];
+    private static function build_summary_from_result(array $result, bool $is_ak_hi = false): array
+    {
+        $sent = is_array($result['sent'] ?? null) ? $result['sent'] : [];
         $failed = is_array($result['failed'] ?? null) ? $result['failed'] : [];
 
-        $has_sent      = !empty($sent);
+        $has_sent = !empty($sent);
         $has_real_fail = false;
-        $has_skipped   = false;
+        $has_skipped = false;
 
         foreach ($failed as $row) {
             $st = $row['status'] ?? '';
@@ -403,30 +439,30 @@ class LeadRouter_Flow
         }
 
         return [
-            'lead_id'     => $result['lead_id']      ?? 0,
-            'group_id'    => $result['group_post_id'] ?? 0,
+            'lead_id' => $result['lead_id'] ?? 0,
+            'group_id' => $result['group_post_id'] ?? 0,
             'lead_status' => $lead_status,
         ];
     }
 
 
     /* ============================================================
-     * Фільтрація партнерів перед відправкою
+     * 🧰 Фільтрація партнерів перед відправкою
      * ============================================================ */
     protected static function filter_partner(array $p): ?string
     {
         $pid = (int)($p['partner_id'] ?? 0);
 
-        // Якщо партнер вимкнений — пропускаємо
+        // ⛔ Якщо партнер вимкнений — пропускаємо
         $active = (int)get_post_meta($pid, '_leadrouter_partner_active', true);
         if ($active === 0) return 'paused_partner';
 
-        // Обмеження по штатах Alaska / Hawaii
+        // 📍 Обмеження по штатах Alaska / Hawaii
         $from_state = strtoupper(trim((string)($p['lead_from_state'] ?? '')));
-        $to_state   = strtoupper(trim((string)($p['lead_to_state'] ?? '')));
+        $to_state = strtoupper(trim((string)($p['lead_to_state'] ?? '')));
 
-        $allowAK = (int)get_post_meta($pid, 'leadrouter_partner_allow_alaska', true);
-        $allowHI = (int)get_post_meta($pid, 'leadrouter_partner_allow_hawaii', true);
+        $allowAK = get_post_meta($pid, '_leadrouter_partner_allow_alaska', true);
+        $allowHI = get_post_meta($pid, '_leadrouter_partner_allow_hawaii', true);
 
         if (
             ($from_state === 'AK' || $to_state === 'AK') && !$allowAK
@@ -444,7 +480,7 @@ class LeadRouter_Flow
     }
 
     /* ============================================================
-     * Допоміжні методи
+     * 🧭 Допоміжні методи
      * ============================================================ */
 
     /**
@@ -456,7 +492,7 @@ class LeadRouter_Flow
         $full_name = trim((string)($row['name'] ?? ''));
         $name_parts = preg_split('/\s+/', $full_name, 2);
         $first = $name_parts[0] ?? '';
-        $last  = $name_parts[1] ?? '';
+        $last = $name_parts[1] ?? '';
 
         // vehicle_inop: Running → '0', інше → '1'
         $cond = trim((string)($row['vehicle_condition'] ?? ''));
@@ -467,37 +503,35 @@ class LeadRouter_Flow
 
         $payload = [
             'first_name' => $first,
-            'last_name'  => $last,
-            'email'      => (string)($row['email'] ?? ''),
-            'phone'      => (string)($row['phone'] ?? ''),
-            'ship_date'  => $ship_date,
+            'last_name' => $last,
+            'email' => (string)($row['email'] ?? ''),
+            'phone' => (string)($row['phone'] ?? ''),
+            'ship_date' => $ship_date,
             'comment_from_shipper' => '',
             'transport_type' => '1',
 
             'Vehicles' => [
                 [
-                    'vehicle_type'        => (string)($row['vehicle_bodytype'] ?? ''), // якщо є
-                    'vehicle_model_year'  => (int)($row['vehicle_year'] ?? 0),
-                    'vehicle_make'        => (string)($row['vehicle_brand'] ?? ''),
-                    'vehicle_model'       => (string)($row['vehicle_model'] ?? ''),
-                    'vehicle_inop'        => $vehicle_inop,
+                    'vehicle_type' => (string)($row['vehicle_bodytype'] ?? ''), // якщо є
+                    'vehicle_model_year' => (int)($row['vehicle_year'] ?? 0),
+                    'vehicle_make' => (string)($row['vehicle_brand'] ?? ''),
+                    'vehicle_model' => (string)($row['vehicle_model'] ?? ''),
+                    'vehicle_inop' => $vehicle_inop,
                 ]
             ],
 
             // from
-            'origin_country'     => 'USA',
-            'origin_city'        => (string)($row['from_city'] ?? ''),
-            'origin_state'       => (string)($row['from_state'] ?? ''),
+            'origin_country' => 'USA',
+            'origin_city' => (string)($row['from_city'] ?? ''),
+            'origin_state' => (string)($row['from_state'] ?? ''),
             'origin_postal_code' => (string)($row['from_zip'] ?? ''),
 
             // to
-            'destination_country'     => 'USA',
-            'destination_city'        => (string)($row['to_city'] ?? ''),
-            'destination_state'       => (string)($row['to_state'] ?? ''),
+            'destination_country' => 'USA',
+            'destination_city' => (string)($row['to_city'] ?? ''),
+            'destination_state' => (string)($row['to_state'] ?? ''),
             'destination_postal_code' => (string)($row['to_zip'] ?? ''),
         ];
-
-
 
 
         return $payload;
@@ -523,13 +557,14 @@ class LeadRouter_Flow
     }
 
 
-
-    protected static function now_mysql_est(): string {
+    protected static function now_mysql_est(): string
+    {
         $tz = new DateTimeZone(self::EST_TZ);
         return (new DateTimeImmutable('now', $tz))->format('Y-m-d H:i:s');
     }
 
-    protected static function check_dependencies() {
+    protected static function check_dependencies()
+    {
         if (!class_exists('LeadRouter_Dispatcher_Eff') ||
             !method_exists('LeadRouter_Dispatcher_Eff', 'assign_group_for_lead')) {
             return new WP_Error('leadrouter_flow_no_dispatcher', 'LeadRouter_Dispatcher_Eff::assign_group_for_lead не знайдено');
@@ -541,7 +576,8 @@ class LeadRouter_Flow
         return true;
     }
 
-    public static function group_for_lead(int $lead_id, array $opts = []) {
+    public static function group_for_lead(int $lead_id, array $opts = [])
+    {
         $group = LeadRouter_Dispatcher_Eff::assign_group_for_lead($lead_id, $opts);
         if (is_wp_error($group)) return $group;
         if (empty($group['group_post_id'])) {
@@ -551,7 +587,8 @@ class LeadRouter_Flow
         return $group;
     }
 
-    protected static function compact_partner_meta(array $p): array {
+    protected static function compact_partner_meta(array $p): array
+    {
         return [
             'open_now' => (bool)($p['open_now'] ?? true),
             'limit_today' => (int)($p['limit_today'] ?? 0),
@@ -563,13 +600,19 @@ class LeadRouter_Flow
     /* --- решта допоміжних методів (queue, send_with_retries, log_event тощо) залишаються без змін --- */
 
 
-
-
-/** Відправка з ретраями */
+    /** Відправка з ретраями */
     /** Відправка з ретраями через LeadRouter_Sender_Light */
     protected static function send_with_retries(int $lead_id, array $partner_row, string $dispatch_method)
     {
         do_action('leadrouter_before_send', $lead_id, $partner_row, ['dispatch_method' => $dispatch_method]);
+
+
+
+/*
+        file_put_contents(
+            __DIR__ . '/partners_row.log',
+            print_r($partner_row, true)
+        );*/
 
         // 1) Дані ліда з БД → наш стандартний payload
         $lead = self::get_lead_row($lead_id);
@@ -591,7 +634,7 @@ class LeadRouter_Flow
         // 3) Налаштування ретраїв: Flow робить до RETRY_MAX_ATTEMPTS спроб Sender’а,
         //    а всередині Sender можна лишити http_retries=0 (щоб не плодити подвійні ретраї),
         //    або поставити 1–2 якщо хочеш комбінований підхід.
-        $max_attempts = (int) self::RETRY_MAX_ATTEMPTS;
+        $max_attempts = (int)self::RETRY_MAX_ATTEMPTS;
         $attempt = 0;
         $last_error = null;
 
@@ -599,30 +642,29 @@ class LeadRouter_Flow
             $attempt++;
 
             $ctx = [
-                'lead_id'        => $lead_id,
-                'group_post_id'  => (int)($partner_row['group_post_id'] ?? 0),
-                'attempt'        => $attempt,
-                'dispatch_method'=> $dispatch_method,
-                'http_retries'   => 0,      // ретраї робимо на рівні Flow
-                'timeout'        => 20,     // сек; за потреби прокинь із опцій
+                'lead_id' => $lead_id,
+                'group_post_id' => (int)($partner_row['group_post_id'] ?? 0),
+                'attempt' => $attempt,
+                'dispatch_method' => $dispatch_method,
+                'http_retries' => 0,      // ретраї робимо на рівні Flow
+                'timeout' => 20,     // сек; за потреби прокинь із опцій
             ];
 
 
-
-            $t0   = microtime(true);
-            $out  = LeadRouter_Sender_Light::send($our_payload, $partner_id, $ctx);
-            $ms   = round((microtime(true) - $t0) * 1000, 2);
+            $t0 = microtime(true);
+            $out = LeadRouter_Sender_Light::send($our_payload, $partner_id, $ctx);
+            $ms = round((microtime(true) - $t0) * 1000, 2);
 
             // Локальне «збагачення» результату — щоб Flow мав коротку картину
-            $res  = $out['result'] ?? [];
-            $resp = $out['resp']   ?? null;
+            $res = $out['result'] ?? [];
+            $resp = $out['resp'] ?? null;
 
             // Якщо успіх — віддаємо дані вверх
             if (!empty($res['success'])) {
                 $ok = [
-                    'ok'          => true,
-                    'attempts'    => $attempt,
-                    'runtime_ms'  => $ms,
+                    'ok' => true,
+                    'attempts' => $attempt,
+                    'runtime_ms' => $ms,
                     'status_code' => $res['status_code'] ?? ($resp['status_code'] ?? null),
                     'external_id' => $res['external_id'] ?? null,
                 ];
@@ -632,13 +674,13 @@ class LeadRouter_Flow
 
             // Якщо невдача — вирішуємо, чи робити ще спробу
             $retryable = !empty($res['retryable']);
-            $err_code  = $res['error_code'] ?? 'send_failed';
-            $err_msg   = $res['error_message'] ?? ('HTTP '.($res['status_code'] ?? 'n/a'));
+            $err_code = $res['error_code'] ?? 'send_failed';
+            $err_msg = $res['error_message'] ?? ('HTTP ' . ($res['status_code'] ?? 'n/a'));
 
             $last_error = new WP_Error($err_code, $err_msg, [
                 'status_code' => $res['status_code'] ?? null,
-                'attempt'     => $attempt,
-                'runtime_ms'  => $ms,
+                'attempt' => $attempt,
+                'runtime_ms' => $ms,
             ]);
 
             if ($retryable && $attempt < $max_attempts) {
@@ -815,14 +857,14 @@ class LeadRouter_Flow
         // оновлюємо статус у leads
         $wpdb->update(
             $table,
-            ['response_status' => $status],
+            ['response_status' => $status, 'status' => $status],
             ['id' => $lead_id],
             ['%s'],
             ['%d']
         );
 
 
-        if ($status === 'processed') {
+        if ($status === 'sent') {
             $wpdb->update(
                 $table,
                 ['sent_at' => self::now_mysql_est()],
@@ -913,7 +955,7 @@ class LeadRouter_Flow
 
 
         /**
-         * Нормалізація телефону
+         * 📞 Нормалізація телефону
          */
         if (isset($data['phone'])) {
             $normalizedPhone = leadrouter_normalize_phone($data['phone'], ['strict' => false]);
@@ -933,7 +975,7 @@ class LeadRouter_Flow
         }
 
         /**
-         * Нормалізація дати
+         * 📅 Нормалізація дати
          */
         if (isset($data['est_ship_date'])) {
             $normalizedDate = leadrouter_normalize_date($data['est_ship_date'], ['strict' => false]);
@@ -952,42 +994,45 @@ class LeadRouter_Flow
         }
 
 
-
-
         $insert_data = [
-            'name'              => sanitize_text_field($data['name'] ?? ''),
-            'email'             => sanitize_email($data['email'] ?? ''),
-            'phone'             => sanitize_text_field($data['phone'] ?? ''),
-            'vehicle_year'      => (int)($data['vehicle_year'] ?? 0),
-            'vehicle_brand'     => sanitize_text_field($data['vehicle_brand'] ?? ''),
-            'vehicle_model'     => sanitize_text_field($data['vehicle_model'] ?? ''),
+            'name' => sanitize_text_field($data['name'] ?? ''),
+            'email' => sanitize_email($data['email'] ?? ''),
+            'phone' => sanitize_text_field($data['phone'] ?? ''),
+            'vehicle_year' => (int)($data['vehicle_year'] ?? 0),
+            'vehicle_brand' => sanitize_text_field($data['vehicle_brand'] ?? ''),
+            'vehicle_model' => sanitize_text_field($data['vehicle_model'] ?? ''),
             'vehicle_condition' => sanitize_text_field($data['vehicle_condition'] ?? ''),
             'vehicle_bodytype' => sanitize_text_field($data['vehicle_bodytype'] ?? ''),
-            'from_city'         => sanitize_text_field($data['from_city'] ?? ''),
-            'from_state'        => sanitize_text_field($data['from_state'] ?? ''),
-            'from_zip'          => sanitize_text_field($data['from_zip'] ?? ''),
-            'to_city'           => sanitize_text_field($data['to_city'] ?? ''),
-            'to_state'          => sanitize_text_field($data['to_state'] ?? ''),
-            'to_zip'            => sanitize_text_field($data['to_zip'] ?? ''),
-            'est_ship_date'     => sanitize_text_field($data['est_ship_date'] ?? $now),
-            'created_at'        => $now,
-            'dispatch_method'   => sanitize_text_field($data['dispatch_method'] ?? 'manual'),
-            'utm_json'          => sanitize_text_field($data['utm_json'] ?? ''),
+            'from_city' => sanitize_text_field($data['from_city'] ?? ''),
+            'from_state' => sanitize_text_field($data['from_state'] ?? ''),
+            'from_zip' => sanitize_text_field($data['from_zip'] ?? ''),
+            'to_city' => sanitize_text_field($data['to_city'] ?? ''),
+            'to_state' => sanitize_text_field($data['to_state'] ?? ''),
+            'to_zip' => sanitize_text_field($data['to_zip'] ?? ''),
+            'est_ship_date' => sanitize_text_field($data['est_ship_date'] ?? $now),
+            'created_at' => $now,
+            'dispatch_method' => sanitize_text_field($data['dispatch_method'] ?? 'manual'),
 
-            'status'          => 'new',
-            'attempts_total'  => 0,
+            'utm_source' => sanitize_text_field($data['utm_source'] ?? ''),
+            'utm_content' => sanitize_text_field($data['utm_content'] ?? ''),
+            'utm_medium' => sanitize_text_field($data['utm_medium'] ?? ''),
+            'utm_term' => sanitize_text_field($data['utm_term'] ?? ''),
+            'utm_campaign' => sanitize_text_field($data['utm_campaign'] ?? ''),
+
+            'status' => 'new',
+            'attempts_total' => 0,
             'next_attempt_at' => 0,
             'last_error_code' => '',
-            'last_error_at'   => 0,
-            'await_groups'    => null,
+            'last_error_at' => 0,
+            'await_groups' => null,
         ];
 
         $format = [
-            '%s','%s','%s',
-            '%d','%s','%s','%s', '%s',
-            '%s','%s','%s',
-            '%s','%s','%s',
-            '%s','%s','%s','%s','%s'
+            '%s', '%s', '%s',
+            '%d', '%s', '%s', '%s', '%s',
+            '%s', '%s', '%s',
+            '%s', '%s', '%s',
+            '%s', '%s', '%s', '%s'
         ];
 
         $ok = $wpdb->insert($table, $insert_data, $format);
@@ -1144,7 +1189,6 @@ class LeadRouter_Flow
             return $err;
         }
         $result['queries'][] = $q3;
-
 
 
         // TRUNCATE send logs
