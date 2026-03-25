@@ -81,6 +81,7 @@ class LeadRouter_Admin
             wp_enqueue_script('md_json_viewer', plugins_url('/assets/js/jquery.json-viewer.js', dirname(__FILE__)), [], LEADROUTER_VERSION);
 
 
+            wp_enqueue_script('chart-js', 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js', [], '4.4.0', true);
             wp_enqueue_script('leadrouter-admin-js', plugins_url('/assets/js/admin.js', dirname(__FILE__)), ['jquery'], LEADROUTER_VERSION);
 
 
@@ -102,6 +103,35 @@ class LeadRouter_Admin
                 'manualBroadcastBulkAction' => 'leadrouter_manual_broadcast_bulk',
                 'deleteLeadsCascadeAction' => 'leadrouter_delete_leads_cascade',
             ]);
+
+            wp_add_inline_style('md_admin_css3', '
+                .lr-utm-stats-panel { background: #fff; border: 1px solid #ccd0d4; padding: 15px; margin: 10px 0 15px; border-radius: 4px; }
+                .lr-utm-stats-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin-bottom: 15px; }
+                .lr-utm-stats-header h3 { margin: 0; font-size: 14px; }
+                .lr-utm-stats-body.collapsed { display: none; }
+                .lr-utm-stats-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+                .lr-utm-stat-card { background: #f6f7f7; padding: 12px; border-radius: 4px; }
+                .lr-utm-stat-card strong { display: block; font-size: 24px; color: #2271b1; margin-bottom: 5px; }
+                .lr-utm-stat-card span { font-size: 12px; color: #646970; }
+                .lr-utm-chart-container { max-width: 800px; margin: 0 auto; }
+            ');
+
+            wp_add_inline_script('jquery', '
+                jQuery(document).ready(function($) {
+                    var isCollapsed = localStorage.getItem("lr_utm_stats_collapsed") === "true";
+                    if (isCollapsed) {
+                        $(".lr-utm-stats-body").addClass("collapsed");
+                        $(".lr-utm-stats-toggle").text("▶");
+                    }
+
+                    $(".lr-utm-stats-header").on("click", function() {
+                        $(".lr-utm-stats-body").toggleClass("collapsed");
+                        var collapsed = $(".lr-utm-stats-body").hasClass("collapsed");
+                        $(".lr-utm-stats-toggle").text(collapsed ? "▶" : "▼");
+                        localStorage.setItem("lr_utm_stats_collapsed", collapsed);
+                    });
+                });
+            ');
 
 
         });

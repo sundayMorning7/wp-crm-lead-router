@@ -65,6 +65,9 @@ class LeadRouter_Leads_Table extends WP_List_Table
 
         if ($which === 'top') {
 
+            // UTM Stats Panel
+            $this->render_utm_stats_panel();
+
             // ... твої існуючі фільтри
 
             $groups = $this->get_groups_for_select();
@@ -161,6 +164,115 @@ class LeadRouter_Leads_Table extends WP_List_Table
     public function search_box($text, $input_id)
     {
         // Stage 1: no search box
+    }
+
+    /**
+     * Render UTM Statistics Panel with Chart
+     */
+    protected function render_utm_stats_panel()
+    {
+        global $wpdb;
+        $leads_table = $wpdb->prefix . 'leadrouter_leads';
+
+        // Get current filters
+        $created_from = isset($_GET['created_from']) ? sanitize_text_field($_GET['created_from']) : '';
+        $created_to   = isset($_GET['created_to'])   ? sanitize_text_field($_GET['created_to'])   : '';
+        $utm_source   = isset($_GET['utm_source'])   ? sanitize_text_field($_GET['utm_source'])   : '';
+        $status       = isset($_GET['lr_status'])    ? sanitize_text_field($_GET['lr_status'])    : '';
+
+        // Build WHERE clause
+        $where = [];
+        $params = [];
+
+        if ($created_from) {
+            $where[] = 'created_at >= %s';
+            $params[] = $created_from . ' 00:00:00';
+        }
+        if ($created_to) {
+            $where[] = 'created_at <= %s';
+            $params[] = $created_to . ' 23:59:59';
+        }
+        if ($utm_source) {
+            $where[] = 'utm_source = %s';
+            $params[] = $utm_source;
+        }
+        if ($status) {
+            $where[] = 'status = %s';
+            $params[] = $status;
+        }
+
+        $where_sql = $where ? (' WHERE ' . implode(' AND ', $where)) : '';
+
+        // Total leads
+        $total_leads = (int)$wpdb->get_var(
+            $params ? $wpdb->prepare("SELECT COUNT(*) FROM {$leads_table} {$where_sql}", $params) : "SELECT COUNT(*) FROM {$leads_table} {$where_sql}"
+        );
+
+        // Leads without UTM
+        $no_utm_where = $where;
+        $no_utm_params = $params;
+        $no_utm_where[] = "(utm_source IS NULL OR utm_source = '')";
+        $no_utm_where_sql = ' WHERE ' . implode(' AND ', $no_utm_where);
+        $missing_utm = (int)$wpdb->get_var(
+            $no_utm_params ? $wpdb->prepare("SELECT COUNT(*) FROM {$leads_table} {$no_utm_where_sql}", $no_utm_params) : "SELECT COUNT(*) FROM {$leads_table} {$no_utm_where_sql}"
+        );
+
+        // UTM sources stats
+        $utm_where = $where;
+        $utm_params = $params;
+        $utm_where[] = 'utm_source IS NOT NULL AND utm_source <> %s';
+        $utm_params[] = '';
+        $utm_where_sql = ' WHERE ' . implode(' AND ', $utm_where);
+        
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT utm_source, COUNT(*) AS total FROM {$leads_table} {$utm_where_sql} GROUP BY utm_source ORDER BY total DESC",
+                $utm_params
+            ),
+            ARRAY_A
+        ) ?: [];
+
+        $chart_labels = [];
+        $chart_data = [];
+        foreach ($rows as $row) {
+            $chart_labels[] = $row['utm_source'];
+            $chart_data[] = (int)$row['total'];
+        }
+
+        // Render panel
+        echo '<div class="lr-utm-stats-panel">';
+        echo '<div class="lr-utm-stats-header">';
+        echo '<h3>UTM статистика лидов</h3>';
+        echo '<span class="lr-utm-stats-toggle">▼</span>';
+        echo '</div>';
+        echo '<div class="lr-utm-stats-body">';
+
+        echo '<div class="lr-utm-stats-summary">';
+        echo '<div class="lr-utm-stat-card"><strong>' . $total_leads . '</strong><span>Всего лидов</span></div>';
+        echo '<div class="lr-utm-stat-card"><strong>' . count($rows) . '</strong><span>Источников UTM</span></div>';
+        echo '<div class="lr-utm-stat-card"><strong>' . $missing_utm . '</strong><span>Без UTM</span></div>';
+        echo '</div>';
+
+        if (!empty($rows)) {
+            echo '<div class="lr-utm-chart-container"><canvas id="lrUtmChart"></canvas></div>';
+            echo '<script>';
+            echo 'document.addEventListener("DOMContentLoaded", function() {';
+            echo '  var ctx = document.getElementById("lrUtmChart");';
+            echo '  if (ctx && typeof Chart !== "undefined") {';
+            echo '    new Chart(ctx, {';
+            echo '      type: "bar",';
+            echo '      data: {';
+            echo '        labels: ' . wp_json_encode($chart_labels) . ',';
+            echo '        datasets: [{ label: "Лиды", data: ' . wp_json_encode($chart_data) . ', backgroundColor: "rgba(34, 113, 177, 0.7)" }]';
+            echo '      },';
+            echo '      options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } } }';
+            echo '    });';
+            echo '  }';
+            echo '});';
+            echo '</script>';
+        }
+
+        echo '</div></div>';
     }
 
     /**
