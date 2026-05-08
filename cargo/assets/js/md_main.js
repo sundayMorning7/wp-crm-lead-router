@@ -286,21 +286,26 @@ function isFakePhoneNumber(phone) {
     ];
     if (knownFake.includes(digits)) return true;
 
-    // Последовательности
-    let asc = true, desc = true;
-    for (let i = 1; i < digits.length; i++) {
-        let prev = parseInt(digits[i - 1]);
-        let curr = parseInt(digits[i]);
-        if (curr !== (prev + 1) % 10) asc = false;
-        if (curr !== (prev + 9) % 10) desc = false;
+    // Последовательности (короткие и длинные, минимум 3 подряд)
+    for (let len = 3; len <= digits.length; len++) {
+        for (let i = 0; i <= digits.length - len; i++) {
+            let asc = true, desc = true;
+            for (let j = 1; j < len; j++) {
+                let prev = parseInt(digits[i + j - 1]);
+                let curr = parseInt(digits[i + j]);
+                if (curr !== (prev + 1) % 10) asc = false;
+                if (curr !== (prev + 9) % 10) desc = false;
+            }
+            if (asc || desc) return true;
+        }
     }
-    if (asc || desc) return true;
 
-    // Повторяющийся паттерн
-    for (let chunk = 1; chunk <= digits.length / 2; chunk++) {
-        if (digits.length % chunk !== 0) continue;
+    // Повторяющийся паттерн (полный и частичный)
+    for (let chunk = 2; chunk <= Math.floor(digits.length / 2); chunk++) {
         let part = digits.slice(0, chunk);
-        if (part.repeat(digits.length / chunk) === digits) return true;
+        let repeats = Math.floor(digits.length / chunk);
+        if (repeats < 2) continue;
+        if (digits.indexOf(part.repeat(2)) === 0) return true;
     }
 
     // Мало уникальных цифр

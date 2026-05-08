@@ -81,6 +81,14 @@ function cargo_phone_is_fake(string $digits): bool
         return true;
     }
 
+    if (cargo_phone_has_short_sequence($digits)) {
+        return true;
+    }
+    
+    if (cargo_phone_has_partial_repeating_pattern($digits)) {
+        return true;
+    }
+
     if (count(array_unique(str_split($digits))) <= 2) {
         return true;
     }
@@ -124,5 +132,46 @@ function cargo_phone_has_repeating_pattern(string $digits): bool
         }
     }
 
+    return false;
+}
+
+function cargo_phone_has_short_sequence(string $digits, int $minLen = 3): bool
+{
+    $len = strlen($digits);
+    for ($i = 0; $i <= $len - $minLen; $i++) {
+        // Проверка на возрастающую
+        $asc = true;
+        for ($j = 1; $j < $minLen; $j++) {
+            if ((int)$digits[$i + $j] !== ((int)$digits[$i + $j - 1] + 1) % 10) {
+                $asc = false;
+                break;
+            }
+        }
+        if ($asc) return true;
+
+        // Проверка на убывающую
+        $desc = true;
+        for ($j = 1; $j < $minLen; $j++) {
+            if ((int)$digits[$i + $j] !== ((int)$digits[$i + $j - 1] + 9) % 10) {
+                $desc = false;
+                break;
+            }
+        }
+        if ($desc) return true;
+    }
+    return false;
+}
+
+function cargo_phone_has_partial_repeating_pattern(string $digits, int $minChunk = 2): bool
+{
+    $length = strlen($digits);
+    for ($chunk = $minChunk; $chunk <= intdiv($length, 2); $chunk++) {
+        $part = substr($digits, 0, $chunk);
+        $repeats = intdiv($length, $chunk);
+        if ($repeats < 2) continue;
+        if (strpos($digits, str_repeat($part, 2)) === 0) {
+            return true;
+        }
+    }
     return false;
 }
