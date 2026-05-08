@@ -8,22 +8,17 @@ if (!isset($_COOKIE["md_oc"]) || !isset($_COOKIE["md_dc"]) || !isset($_COOKIE["m
 
 if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
 
+    $rawPhone = isset($_POST['md_phone']) ? wp_unslash((string) $_POST['md_phone']) : '';
+    $phoneCheck = cargo_validate_phone($rawPhone, ['US']);
 
-    $name = mb_convert_encoding($_POST['md_name'], 'UTF-8', 'UTF-8');
-    $name = htmlentities($name, ENT_QUOTES, 'UTF-8');
+    if (!$phoneCheck['valid']) {
+        wp_safe_redirect(add_query_arg('phone_error', '1', get_permalink(20)));
+        exit();
+    }
 
-    $email = mb_convert_encoding($_POST['md_email'], 'UTF-8', 'UTF-8');
-    $email = htmlentities($email, ENT_QUOTES, 'UTF-8');
-
-
-    $phone = mb_convert_encoding($_POST['md_phone'], 'UTF-8', 'UTF-8');
-    $phone = htmlentities($phone, ENT_QUOTES, 'UTF-8');
-    //$phone = '+1 ' . $phone;
-
-    $phone = str_replace('+1 ', '', $phone);
-    $phone = str_replace(') ', '-', $phone);
-    $phone = str_replace('(', '', $phone);
-
+    $name = sanitize_text_field(wp_unslash($_POST['md_name']));
+    $email = sanitize_email(wp_unslash($_POST['md_email']));
+    $phone = $phoneCheck['e164'];
 
     $date = mb_convert_encoding($_POST['md_date'], 'UTF-8', 'UTF-8');
     $date = htmlentities($date, ENT_QUOTES, 'UTF-8');

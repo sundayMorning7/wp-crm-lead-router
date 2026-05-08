@@ -52,6 +52,10 @@ if (!isset($_COOKIE["md_oc"]) || !isset($_COOKIE["md_dc"]) || !isset($_COOKIE["m
     exit();
 }
 
+$phone_error_message = '';
+if (isset($_GET['phone_error']) && $_GET['phone_error'] === '1') {
+    $phone_error_message = 'This phone number doesn’t look right. Please double-check it to get an accurate quote.';
+}
 
 get_header(); ?>
 
@@ -118,6 +122,9 @@ get_header(); ?>
                                                             type="text" id="md_test_phone2">
                                                 </div>
                                             </div>
+                                            <?php if ($phone_error_message) : ?>
+                                                <div class="md_error_msg md_phone_error_msg"><?php echo esc_html($phone_error_message); ?></div>
+                                            <?php endif; ?>
                                         </div>
 
                                         <div class="w-layout-vflex input-group"><label for="name-2"

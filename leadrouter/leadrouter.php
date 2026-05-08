@@ -3,7 +3,7 @@
  * Plugin Name: LeadRouter by Maks Devda
  * Plugin URI: https://example.com/leadrouter
  * Description: Розподіл лідів між партнерами за групами з логами та адмін-інтерфейсом.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Maks Devda
  * Author URI: https://example.com
  * License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 }
 
 
-define('LEADROUTER_VERSION', '1.0.13');
+define('LEADROUTER_VERSION', '1.2.0');
 define('LEADROUTER_PLUGIN_FILE', __FILE__);
 define('LEADROUTER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('LEADROUTER_PLUGIN_URL', plugin_dir_url(__FILE__));

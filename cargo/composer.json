@@ -2,7 +2,8 @@
   "name": "name/theshipwise",
   "type": "project",
   "require": {
-    "facebook/php-business-sdk": "^8.0.3"
+    "facebook/php-business-sdk": "^8.0.3",
+    "giggsey/libphonenumber-for-php": "^8.13"
   },
   "authors": [
     {

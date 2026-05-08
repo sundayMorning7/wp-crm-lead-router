@@ -269,18 +269,62 @@ function delay(callback, ms) {
     };
 }
 
+function isFakePhoneNumber(phone) {
+    // Удаляем все нецифры
+    let digits = phone.replace(/\D/g, '');
+
+    // 10 одинаковых цифр
+    if (/^(\d)\1{9}$/.test(digits)) return true;
+
+    // Известные фейки
+    const knownFake = [
+        '0000000000',
+        '1111111111',
+        '1234567890',
+        '0123456789',
+        '9876543210'
+    ];
+    if (knownFake.includes(digits)) return true;
+
+    // Последовательности
+    let asc = true, desc = true;
+    for (let i = 1; i < digits.length; i++) {
+        let prev = parseInt(digits[i - 1]);
+        let curr = parseInt(digits[i]);
+        if (curr !== (prev + 1) % 10) asc = false;
+        if (curr !== (prev + 9) % 10) desc = false;
+    }
+    if (asc || desc) return true;
+
+    // Повторяющийся паттерн
+    for (let chunk = 1; chunk <= digits.length / 2; chunk++) {
+        if (digits.length % chunk !== 0) continue;
+        let part = digits.slice(0, chunk);
+        if (part.repeat(digits.length / chunk) === digits) return true;
+    }
+
+    // Мало уникальных цифр
+    if ([...new Set(digits)].length <= 2) return true;
+
+    return false;
+}
 
 
-
+console.log('BBBBBBBBBB');
 jQuery(document).ready(function ($) {
-
-
+    
     $('#md_step3_form').on('submit', function (e) {
-
+        $('.md_phone_error_msg').remove();
+        
+        console.log('OOOOOOOOO');
         let phone = $('#md_test_phone2').val();
 
-        if (phone === '+1 (000) 000-0000') {
+        if (isFakePhoneNumber(phone.slice(2))) {
+            console.log('false');
             $('#md_test_phone2').addClass('md_input_error');
+            $('#md_test_phone2').closest('.input-group').append(
+                '<div class="md_error_msg md_phone_error_msg">This phone number doesn’t look right. Please double-check it to get an accurate quote.</div>'
+            );
             return false;
         } else {
             $('#md_test_phone2').removeClass('md_input_error');

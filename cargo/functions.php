@@ -1,8 +1,14 @@
 <?php
 
-
 require_once "inc/sending.php";
 require_once "inc/admin/admin.php";
+
+$cargo_vendor_autoload = get_template_directory() . '/vendor/autoload.php';
+if (file_exists($cargo_vendor_autoload)) {
+    require_once $cargo_vendor_autoload;
+}
+
+require_once get_template_directory() . '/inc/phone-validation.php';
 
 function md_register_style_and_scripts()
 {
