@@ -59,6 +59,12 @@ if (is_admin()) {
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/class-leadrouter_leads_stats.php';
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/class-leadrouter-logviewer.php';
 
+    // Подключаем CRUD для лидов (LeadRouter_Leads)
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-lead.php';
+
+    // Кастомная колонка и AJAX для тестовой отправки лида партнёру
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/lr-send-test-lead.php';
+
     LeadRouter_LogViewer::init();
 
 }
