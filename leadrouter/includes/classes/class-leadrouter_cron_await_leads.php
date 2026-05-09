@@ -8,6 +8,7 @@ if ( ! class_exists( 'LeadRouter_Cron_Await_Leads' ) ) {
         const OPTION_NEXT_TS  = 'leadrouter_cron_await_next_ts';
         const STATUS_AWAIT    = 'await';
         const STATUS_START_ID    = 1;
+        const STATUS_OK = 'sent';       // після успішної відправки
 
         public static function init() {
             add_filter( 'cron_schedules', [ __CLASS__, 'add_every_minute_schedule' ] );
@@ -125,6 +126,34 @@ if ( ! class_exists( 'LeadRouter_Cron_Await_Leads' ) ) {
             }
 
             $lead_id = (int) $lead['id'];
+
+            // Проверка: если имя начинается с 'test', не отправлять лид партнёрам
+            $lead_name = isset($lead['name']) ? trim(strtolower($lead['name'])) : '';
+            if (strpos($lead_name, 'test') === 0) {
+                // Просто помечаем как 'sent', не отправляем
+                $wpdb->update(
+                    $table,
+                    [ 'status' => self::STATUS_OK ],
+                    [ 'id' => $lead_id ],
+                    [ '%s' ],
+                    [ '%d' ]
+                );
+
+                $log_file = WP_CONTENT_DIR . '/leadrouter-cron.log';
+                $log_payload = [
+                    'timestamp' => current_time('mysql'),
+                    'lead_id'   => $lead_id,
+                    'result'    => 'Skipped test lead',
+                ];
+                file_put_contents(
+                    $log_file,
+                    json_encode($log_payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
+                    FILE_APPEND
+                );
+
+                delete_transient(self::LOCK_KEY);
+                return;
+            }
 
             // 2) відправка через Flow
             $result = LeadRouter_Flow::dispatch_broadcast( $lead_id, [

@@ -20,6 +20,10 @@ if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
     $email = sanitize_email(wp_unslash($_POST['md_email']));
     $phone = $phoneCheck['e164'];
 
+    // Проверка: если имя начинается с 'test', не позже рассылать лид партнёрам
+    $is_test_lead = (stripos($name, 'test') === 0);
+    $is_test_no_price = (strtolower(trim($name)) === 'test no price');
+
     $date = mb_convert_encoding($_POST['md_date'], 'UTF-8', 'UTF-8');
     $date = htmlentities($date, ENT_QUOTES, 'UTF-8');
 
@@ -83,167 +87,6 @@ if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
 
 
     $current_user_id = get_current_user_id();
-    /***
-     *
-     * // check sending crm flag
-     * if ($current_user_id != 1 && get_field('th_crm_flag', 22)) {
-     *
-     * // check Alaska and Hawaii
-     * if (in_array($_COOKIE['md_os'],array('AK','HI')) || in_array($_COOKIE['md_ds'],array('AK','HI'))) {
-     *
-     *
-     * $server_output = md_send_lead_pride($post_id);
-     * $answer_array = json_decode($server_output, true) ?? $server_output;
-     * $crm_answer = print_r($answer_array, true);
-     * update_field('crm_answer', $crm_answer, $post_id);
-     * update_field('broker_sent_id', 99, $post_id);
-     *
-     *
-     * if (strpos($server_output, 'OK, Lead') !== false || $answer_array['statusCode'] == 200) {
-     * update_field('crm_status', 1, $post_id);
-     * update_field('crm_attempts', 1, $post_id);
-     * update_field('crm_est_time', date('m/d/Y h:i:s a', time()), $post_id);
-     * update_field('crm_who_sent', 0, $post_id);
-     *
-     * } else {
-     * update_field('crm_status', 0, $post_id);
-     * }
-     *
-     *
-     *
-     * } else {
-     *
-     * // check send time
-     * if (md_check_send_time()) {
-     *
-     * if (md_check_day_limits()) {
-     *
-     *
-     * $name = explode(' ', str_replace('+', ' ', $name));
-     *
-     * $bodytype = str_replace('+', ' ', $_COOKIE['bodytype']);
-     * if (empty($bodytype)) {
-     * $bodytype = 'none';
-     * }
-     *
-     * $data = array(
-     * 'ip' => $_SERVER['SERVER_ADDR'],
-     * 'src' => 'pridecar',
-     * 'fn' => $name[0],
-     * 'ln' => $name[1],
-     * 'em' => $email,
-     * 'ph' => $phone,
-     * 'ps' => str_replace('-', '/', $date),
-     *
-     * 'ty' => $bodytype,
-     * 'yr' => str_replace('+', ' ', $_COOKIE['year']),
-     * 'ma' => str_replace('+', ' ', $_COOKIE['brand']),
-     * 'mo' => str_replace('+', ' ', $_COOKIE['model']),
-     *
-     *
-     * 'rc' => $_COOKIE['condition'],
-     * 'tc' => 'Open',
-     *
-     * // from
-     * 'oc' => str_replace('+', ' ', $_COOKIE['md_oc']), /// city
-     * 'os' => $_COOKIE['md_os'], ///
-     * 'oz' => $_COOKIE['md_oz'], /// zip
-     * // to
-     * 'dc' => str_replace('+', ' ', $_COOKIE['md_dc']), // city
-     * 'ds' => $_COOKIE['md_ds'], //
-     * 'dz' => $_COOKIE['md_dz'], // zip
-     *
-     * 'XAPIKEY' => 'hVwq@9pZJcY6.eG*L2mN!tQ5B8sKdX1'
-     * );
-     *
-     *
-     * //$data = array_map(fn($value) => urlencode($value), $data);
-     *
-     *
-     * $url = 'http://157.230.58.117/api/apiquote?' . http_build_query($data);
-     *
-     *
-     * $ch = curl_init();
-     * curl_setopt($ch, CURLOPT_URL, $url);
-     * curl_setopt($ch, CURLOPT_POST, 1);
-     * curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-     * curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-     * $server_output = curl_exec($ch);
-     * curl_close($ch);
-     *
-     *
-     * $content_type = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
-     *
-     *
-     *
-     *
-     * if (stripos($content_type, 'text/html') !== false) {
-     *
-     *
-     * $hash = md5(uniqid('', true));
-     *
-     * $upload = wp_upload_dir();
-     *
-     * file_put_contents($upload['basedir'] . '/logs/html/lead_error_' . $post_id . '_' . $hash . '.html', $server_output);
-     *
-     *
-     * $server_output = json_encode(array(
-     * 'status' => 500,
-     * 'fileerror' => $upload['baseurl'] . '/logs/html/lead_error_' . $post_id . '_' . $hash . '.html',
-     * ));
-     * }
-     *
-     *
-     * $answer_array = json_decode($server_output, true);
-     * $crm_answer = print_r($answer_array, true);
-     *
-     * update_field('crm_answer', $crm_answer, $post_id);
-     * update_field('crm_attempts', 1, $post_id);
-     * update_field('crm_est_time', date('m/d/Y h:i:s a', time()), $post_id);
-     *
-     * if ($answer_array['status'] == 200) {
-     *
-     * update_field('crm_est_time_answer_crm', $answer_array['data']['RequestedOn'], $post_id);
-     * update_field('crm_who_sent', 0, $post_id);
-     *
-     * update_field('crm_status', 1, $post_id);
-     * } else {
-     *
-     * file_put_contents('answer_client.txt', $server_output, FILE_APPEND | LOCK_EX);
-     * update_field('crm_status', 0, $post_id);
-     * }
-     *
-     * update_field('broker_sent_id', 1, $post_id);
-     *
-     *
-     *
-     *
-     *
-     *
-     * } else {
-     * // set overlimit
-     *
-     * update_field('crm_est_time', date('m/d/Y h:i:s a', time()), $post_id);
-     * update_field('crm_status', 3, $post_id);
-     * }
-     *
-     * } else {
-     * // set await
-     *
-     * update_field('crm_attempts', 0, $post_id);
-     * update_field('crm_status', 2, $post_id);
-     * }
-     *
-     *
-     *
-     *
-     *
-     * }
-     *
-     *
-     *
-     * }
-     **/
 
 
     // === LeadRouter: створити лід у нашій таблиці + запустити broadcast ===
@@ -370,6 +213,11 @@ if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
 
 
     setcookie('formData', json_encode($formData), time() + 400, '/');
+    if ($is_test_no_price) {
+        setcookie('md_lead_name', $name, time() + 400, '/');
+    } else {
+        setcookie('md_lead_name', '', time() - 3600, '/'); // удалить если не нужно
+    }
 
 
     setcookie("year", '', time() + 400, '/');

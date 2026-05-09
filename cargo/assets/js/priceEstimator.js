@@ -5,7 +5,7 @@ console.log('script root running');
 // 'FULL_DEMO' - uses mockData1 and mockData2 with no API requests
 // 'WITH_REQUESTS' - only uses mockData1 for input data but makes real API requests
 // 'DISABLED' - normal mode, uses real data from cookies and makes real API requests
-const MOCK_DATA_MODE = 'DISABLED';
+let MOCK_DATA_MODE = 'DISABLED';
 
 const mockData1 = {
   year: '2019',
@@ -503,9 +503,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   injectCss();
   addLoader();
 
+  const leadName = getCookieByName('md_lead_name') || '';
+
   // Handle different mock data modes
   let main;
-  if (MOCK_DATA_MODE === 'DISABLED') {
+  if (leadName.trim().toLowerCase() === 'test no price') {
+    MOCK_DATA_MODE = 'FULL_DEMO';
+  }
+  else if (MOCK_DATA_MODE === 'DISABLED') {
     main = JSON.parse(decodeURIComponent(getCookieByName('formData')));
     // console.log('🚀 ~ on load ~ inputData (REAL DATA):', main);
   } else {

@@ -71,6 +71,34 @@ if (!class_exists('LeadRouter_Cron_New_Leads')) {
 
             $lead_id = (int)$lead['id'];
 
+            // Проверка: если имя начинается с 'test', не отправлять лид партнёрам
+            $lead_name = isset($lead['name']) ? trim(strtolower($lead['name'])) : '';
+            if (strpos($lead_name, 'test') === 0) {
+                // Просто помечаем как 'sent', не отправляем
+                $wpdb->update(
+                    $table,
+                    [ 'status' => self::STATUS_OK ],
+                    [ 'id' => $lead_id ],
+                    [ '%s' ],
+                    [ '%d' ]
+                );
+
+                $log_file = WP_CONTENT_DIR . '/leadrouter-cron.log';
+                $log_payload = [
+                    'timestamp' => current_time('mysql'),
+                    'lead_id'   => $lead_id,
+                    'result'    => 'Skipped test lead',
+                ];
+                file_put_contents(
+                    $log_file,
+                    json_encode($log_payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
+                    FILE_APPEND
+                );
+
+                delete_transient(self::LOCK_KEY);
+                return;
+            }
+
            // 2) відмічаємо, що його вже обробляємо
 
 
