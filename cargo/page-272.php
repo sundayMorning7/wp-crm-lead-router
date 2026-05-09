@@ -6,10 +6,26 @@ if (!isset($_COOKIE["md_oc"]) || !isset($_COOKIE["md_dc"]) || !isset($_COOKIE["m
 }
 
 
+
+// Функция логирования попыток создания лида
+function log_lead_attempt($phone, $status, $lead_data) {
+    $log_file = WP_CONTENT_DIR . '/uploads/lead_attempts.log';
+    $log_entry = sprintf(
+        "%s | %s\n%s\n\n",
+        sanitize_text_field($phone),
+        sanitize_text_field($status),
+        json_encode($lead_data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+    );
+    file_put_contents($log_file, $log_entry, FILE_APPEND | LOCK_EX);
+}
+
 if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
+
 
     $rawPhone = isset($_POST['md_phone']) ? wp_unslash((string) $_POST['md_phone']) : '';
     $phoneCheck = cargo_validate_phone($rawPhone, ['US']);
+
+    log_lead_attempt($rawPhone, $phoneCheck['valid'] ? 'valid' : 'invalid', $_POST);
 
     if (!$phoneCheck['valid']) {
         wp_safe_redirect(add_query_arg('phone_error', '1', get_permalink(20)));
