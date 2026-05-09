@@ -24,7 +24,7 @@ const mockData1 = {
 const mockData2 = {
   carrierPay: {
     totalPrice: 1425,
-    distance: 0.51,
+    distance: 72,
     confidence: 86
   }
 };
@@ -503,14 +503,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   injectCss();
   addLoader();
 
-  const leadName = getCookieByName('md_lead_name') || '';
+  const leadName = decodeURIComponent(getCookieByName('md_lead_name'));
+  // console.log("🚀 ~ leadName:", leadName)
 
   // Handle different mock data modes
   let main;
   if (leadName.trim().toLowerCase() === 'test no price') {
     MOCK_DATA_MODE = 'FULL_DEMO';
-  }
-  else if (MOCK_DATA_MODE === 'DISABLED') {
+    main = mockData1;
+  } else if (MOCK_DATA_MODE === 'DISABLED') {
     main = JSON.parse(decodeURIComponent(getCookieByName('formData')));
     // console.log('🚀 ~ on load ~ inputData (REAL DATA):', main);
   } else {

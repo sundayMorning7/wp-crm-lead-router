@@ -315,13 +315,11 @@ function isFakePhoneNumber(phone) {
 }
 
 
-console.log('BBBBBBBBBB');
 jQuery(document).ready(function ($) {
     
     $('#md_step3_form').on('submit', function (e) {
         $('.md_phone_error_msg').remove();
         
-        console.log('OOOOOOOOO');
         let phone = $('#md_test_phone2').val();
 
         if (isFakePhoneNumber(phone.slice(2))) {
