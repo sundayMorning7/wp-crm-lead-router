@@ -19,13 +19,22 @@ function cargo_validate_phone(string $rawPhone, array $allowedRegions = ['US']):
         return [
             'valid' => false,
             'message' => cargo_phone_error_message(),
+            'reason' => 'parse_error',
         ];
     }
 
-    if (!$util->isPossibleNumber($phone) || !$util->isValidNumber($phone)) {
+    if (!$util->isPossibleNumber($phone)) {
         return [
             'valid' => false,
             'message' => cargo_phone_error_message(),
+            'reason' => 'not_possible',
+        ];
+    }
+    if (!$util->isValidNumber($phone)) {
+        return [
+            'valid' => false,
+            'message' => cargo_phone_error_message(),
+            'reason' => 'not_valid',
         ];
     }
 
@@ -34,15 +43,18 @@ function cargo_validate_phone(string $rawPhone, array $allowedRegions = ['US']):
         return [
             'valid' => false,
             'message' => cargo_phone_error_message(),
+            'reason' => 'not_allowed_region',
         ];
     }
 
     $nationalDigits = (string) $phone->getNationalNumber();
 
-    if (cargo_phone_is_fake($nationalDigits)) {
+    $fake_reason = cargo_phone_is_fake($nationalDigits);
+    if ($fake_reason !== null) {
         return [
             'valid' => false,
             'message' => cargo_phone_error_message(),
+            'reason' => 'fake_pattern:' . $fake_reason,
         ];
     }
 
@@ -55,10 +67,10 @@ function cargo_validate_phone(string $rawPhone, array $allowedRegions = ['US']):
     ];
 }
 
-function cargo_phone_is_fake(string $digits): bool
+function cargo_phone_is_fake(string $digits): ?string
 {
     if (preg_match('/^(\d)\1{9}$/', $digits)) {
-        return true;
+        return 'all_same';
     }
 
     $knownFake = [
@@ -70,30 +82,30 @@ function cargo_phone_is_fake(string $digits): bool
     ];
 
     if (in_array($digits, $knownFake, true)) {
-        return true;
+        return 'known_fake';
     }
 
     if (cargo_phone_is_sequential($digits)) {
-        return true;
+        return 'sequential';
     }
 
     if (cargo_phone_has_repeating_pattern($digits)) {
-        return true;
+        return 'repeating_pattern';
     }
 
     if (cargo_phone_has_short_sequence($digits)) {
-        return true;
+        return 'short_sequence';
     }
     
     if (cargo_phone_has_partial_repeating_pattern($digits)) {
-        return true;
+        return 'partial_repeating';
     }
 
     if (count(array_unique(str_split($digits))) <= 2) {
-        return true;
+        return 'low_unique';
     }
 
-    return false;
+    return null;
 }
 
 function cargo_phone_is_sequential(string $digits): bool
