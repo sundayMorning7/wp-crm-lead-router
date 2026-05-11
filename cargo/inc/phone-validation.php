@@ -23,18 +23,33 @@ function cargo_validate_phone(string $rawPhone, array $allowedRegions = ['US']):
         ];
     }
 
+
     if (!$util->isPossibleNumber($phone)) {
+        // Проверяем кастомные fake-pattern
+        $nationalDigits = (string) $phone->getNationalNumber();
+        $fake_reason = cargo_phone_is_fake($nationalDigits);
+        $reason = 'not_possible';
+        if ($fake_reason !== null) {
+            $reason .= '+fake_pattern:' . $fake_reason;
+        }
         return [
             'valid' => false,
             'message' => cargo_phone_error_message(),
-            'reason' => 'not_possible',
+            'reason' => $reason,
         ];
     }
     if (!$util->isValidNumber($phone)) {
+        // Проверяем кастомные fake-pattern
+        $nationalDigits = (string) $phone->getNationalNumber();
+        $fake_reason = cargo_phone_is_fake($nationalDigits);
+        $reason = 'not_valid';
+        if ($fake_reason !== null) {
+            $reason .= '+fake_pattern:' . $fake_reason;
+        }
         return [
             'valid' => false,
             'message' => cargo_phone_error_message(),
-            'reason' => 'not_valid',
+            'reason' => $reason,
         ];
     }
 
@@ -83,6 +98,14 @@ function cargo_phone_is_fake(string $digits): ?string
 
     if (in_array($digits, $knownFake, true)) {
         return 'known_fake';
+    }
+
+    // Проверка: после кода (первые 3 цифры) 5+ одинаковых подряд
+    if (strlen($digits) >= 8) {
+        $post_code = substr($digits, 3);
+        if (preg_match('/(\d)\1{4,}/', $post_code)) {
+            return 'post_code_repeats';
+        }
     }
 
     if (cargo_phone_is_sequential($digits)) {

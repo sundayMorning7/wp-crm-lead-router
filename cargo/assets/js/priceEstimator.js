@@ -28,6 +28,7 @@ const mockData2 = {
     confidence: 86
   }
 };
+const MARKET_MARKUP = 30; // in percents
 const BROKER_MARKUP = 250;
 
 class SuperDispatch {
@@ -341,8 +342,8 @@ async function generateMarkup(pricingPayload, bodytype) {
     );
     // console.log('🚀 ~ generateMarkup ~ carrierPay:', carrierPay);
 
-    // Add broker markup to base price
-    const newPrice = carrierPay.totalPrice + BROKER_MARKUP;
+    // Add broker markup and market markup to base price
+    const newPrice = carrierPay.totalPrice * (1 + MARKET_MARKUP / 100) + BROKER_MARKUP;
     // Calculate new price per mile with broker markup included
     const newPricePerMile = newPrice / carrierPay.distance;
     // console.log(newPrice, newPricePerMile);
@@ -397,7 +398,7 @@ function display(markup) {
   const container = document.createElement('div');
   container.className = 'super-dispatch__container';
   container.innerHTML = `
-            <h2 class="super-dispatch__header">Pricing Recommendation</h2>
+            <h2 class="super-dispatch__header">Fair Price Baseline</h2>
             <div class="super-dispatch__prices">${markup}</div>
     `;
   quoteEstimate.insertAdjacentElement('beforebegin', container);

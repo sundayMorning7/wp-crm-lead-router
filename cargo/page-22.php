@@ -30,7 +30,7 @@ get_header();
                                     <div class="flex-v">
                                         <?php the_field('th_block2'); ?>
                                     </div>
-                                    <div class="thnx-txt-btn-wrpr">
+                                    <!-- <div class="thnx-txt-btn-wrpr">
                                         <p class="txt-20 mob-txt-center"><strong>Need help?</strong><br>Speak with a
                                             specialist now:</p>
 
@@ -40,7 +40,7 @@ get_header();
                                                     loading="lazy" alt="" class="icon-24">
                                             <div class="txt-20"><?php the_field('fp_phone', 'options') ?></div>
                                         </a>
-                                    </div>
+                                    </div> -->
                                     <div class="thnx-review-wrpr">
                                         <div class="flex-h gap-12"><img
                                                     src="<?php echo get_template_directory_uri(); ?>/assets/images/avas01.png"
