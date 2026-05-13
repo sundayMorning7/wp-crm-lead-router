@@ -46,9 +46,26 @@ if (!class_exists('LeadRouter_Transform')) {
                 // 🚗 специфічна логіка стану авто
                 case 'map_running':    return self::mapRunning($value);
                 case 'inop_binary':    return self::inopBinary($value);
+
+                // 🚚 тип транспорта Open/Closed
+                case 'map_transport_type': return self::mapTransportType($value);
             }
         }
 
+        /**
+         * map_transport_type: Преобразует значения типа транспорта в Open/Closed.
+         * Поддерживает варианты: 1, '1', 0, '0'.
+         * Если значение не распознано — возвращает null.
+         *
+         * Пример использования: для поля transport_type, где в базе может быть 1/0 или строка.
+         */
+        protected static function mapTransportType($value): ?string {
+            $v = mb_strtolower(trim((string)$value));
+            if ($v === '1' || $v === 1) return 'Open';
+            if ($v === '0' || $v === 0) return 'Closed';
+            return null;
+        }
+                
         /** Phone → 111-111-1111 */
         protected static function phoneUsDashed(?string $raw): ?string {
             if ($raw === null || $raw === '') return null;
