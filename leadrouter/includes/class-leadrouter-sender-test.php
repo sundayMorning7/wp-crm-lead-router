@@ -43,6 +43,7 @@ function lr_sender_test_sample_payload(): array {
         'destination_state'       => 'ny',
         'destination_postal_code' => '10001',
         // auth у payload (для прикладу)
+        'utm_source' => 'test facebook',
     ];
 }
 
