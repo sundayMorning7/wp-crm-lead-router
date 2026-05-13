@@ -531,6 +531,9 @@ class LeadRouter_Flow
             'destination_city' => (string)($row['to_city'] ?? ''),
             'destination_state' => (string)($row['to_state'] ?? ''),
             'destination_postal_code' => (string)($row['to_zip'] ?? ''),
+            
+            // utm
+            'utm_source' => (string)($row['utm_source'] ?? ''),
         ];
 
 
@@ -548,7 +551,7 @@ class LeadRouter_Flow
             $wpdb->prepare("
             SELECT id, name, email, phone, est_ship_date,
                    vehicle_bodytype, vehicle_year, vehicle_brand, vehicle_model, vehicle_condition,
-                   from_city, from_state, from_zip, to_city, to_state, to_zip
+                   from_city, from_state, from_zip, to_city, to_state, to_zip, utm_source
             FROM {$table} WHERE id = %d
         ", $lead_id),
             ARRAY_A

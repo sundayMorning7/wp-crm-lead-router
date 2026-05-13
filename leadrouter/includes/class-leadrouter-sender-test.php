@@ -166,6 +166,18 @@ if (!function_exists('lr_build_partner_payload')) {
         $flat = lr_dot_flatten($ourPayload);
         $out  = [];
 
+        // --- Автоматическая сборка full_name, если требуется в маппинге ---
+        $need_full_name = false;
+        foreach ($mapRows as $row) {
+            if (isset($row['our_key']) && trim((string)$row['our_key']) === 'full_name') {
+                $need_full_name = true;
+                break;
+            }
+        }
+        if ($need_full_name && isset($ourPayload['first_name'], $ourPayload['last_name'])) {
+            $flat['full_name'] = trim($ourPayload['first_name'] . ' ' . $ourPayload['last_name']);
+        }
+
         foreach ($mapRows as $row) {
             $our    = trim((string)($row['our_key'] ?? ''));
             $their  = trim((string)($row['their_key'] ?? ''));
@@ -212,7 +224,6 @@ if (!function_exists('lr_build_partner_payload')) {
 
         return $out;
     }
-
 }
 
 
