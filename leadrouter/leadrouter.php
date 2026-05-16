@@ -59,6 +59,9 @@ if (is_admin()) {
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/class-leadrouter_leads_stats.php';
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/class-leadrouter-logviewer.php';
 
+    // Кнопка Вкл/Выкл группы в списке групп
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/class-leadrouter-group-toggle.php';
+
     // Подключаем CRUD для лидов (LeadRouter_Leads)
     require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-lead.php';
 
