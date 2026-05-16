@@ -492,7 +492,23 @@ class LeadRouter_Leads_Stats {
             }
 
             echo '<td style="text-align:center">' . $r['eff'] . '</td>';
-            echo '<td style="text-align:center">' . ((int)$r['active'] ? 'Так' : 'Ні') . '</td>';
+
+            // Кнопка Вкл/Викл
+            $group_id = (int)$r['id'];
+            $active = (int)$r['active'];
+            $nonce = wp_create_nonce('leadrouter_toggle_group_active_' . $group_id);
+            $url = add_query_arg([
+                'action' => 'leadrouter_toggle_group_active',
+                'group_id' => $group_id,
+                'set_active' => $active ? 0 : 1,
+                '_wpnonce' => $nonce,
+            ], admin_url('admin-post.php'));
+            if ($active) {
+                echo '<td style="text-align:center"><a href="' . esc_url($url) . '" class="button button-secondary">Вимкнути</a></td>';
+            } else {
+                echo '<td style="text-align:center"><a href="' . esc_url($url) . '" class="button button-primary">Увімкнути</a></td>';
+            }
+
             echo '<td>' . esc_html($r['updated_at'] ?: '—') . '</td>';
             echo '</tr>';
         }
