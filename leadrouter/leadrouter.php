@@ -380,6 +380,7 @@ add_action('admin_init', function () {
 add_action('admin_notices', function () {
     if (!current_user_can('manage_options')) return;
     if (empty($_GET['page']) || $_GET['page'] !== 'leadrouter') return;
+    if (defined('LEADROUTER_PRODUCTION') && LEADROUTER_PRODUCTION) return; // скрываем на проде
 
     $purge_url = wp_nonce_url(add_query_arg(['flow_purge' => '1'], admin_url()), 'leadrouter_flow_purge');
     echo '<div class="notice notice-warning" style="padding:10px 12px;">'
