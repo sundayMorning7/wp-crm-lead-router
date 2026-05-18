@@ -36,7 +36,7 @@ function lr_sender_test_sample_payload(): array {
         'origin_country'     => 'USA',
         'origin_city'        => 'los angeles',
         'origin_state'       => 'ca',
-        'origin_postal_code' => '90001-1234',
+        'origin_postal_code' => '90001',
         // to
         'destination_country'     => 'USA',
         'destination_city'        => 'new york',
