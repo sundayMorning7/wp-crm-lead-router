@@ -46,6 +46,7 @@ if (!class_exists('LeadRouter_Transform')) {
                 // 🚗 специфічна логіка стану авто
                 case 'map_running':    return self::mapRunning($value);
                 case 'inop_binary':    return self::inopBinary($value);
+                case 'inop_binary_reverse': return self::inopBinaryReverse($value);
 
                 // 🚚 тип транспорта Open/Closed
                 case 'map_transport_type': return self::mapTransportType($value);
@@ -141,6 +142,13 @@ if (!class_exists('LeadRouter_Transform')) {
             $v = mb_strtolower(trim((string)$value));
             if ($v === 'running' || $v === '0') return '0';
             return '1';
+        }
+
+        /** inop_binary_reverse: Running → 1, інше → 0 */
+        protected static function inopBinaryReverse(?string $value): ?string {
+            $v = mb_strtolower(trim((string)$value));
+            if ($v === 'running' || $v === '1') return '1';
+            return '0';
         }
 
         /** split_name_fn / split_name_ln */
