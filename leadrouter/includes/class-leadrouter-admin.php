@@ -65,9 +65,61 @@ class LeadRouter_Admin
 
             wp_localize_script('lr-partner-map-autofill', 'LRPartnerMap', [
                 'defaults' => lr_partner_default_map(),
+                'presets' => [
+                    'bats' => lr_partner_default_map(),
+                    'msgplane' => lr_partner_msgplane_default_map(),
+                    'imove360' => lr_partner_imove360_default_map(),
+                    'capscrm' => lr_partner_capscrm_default_map(),
+                    'onespacecrm' => lr_partner_onespacecrm_default_map(),
+                    'mile_autotransport' => lr_partner_mile_autotransport_default_map(),
+                ],
+                'presetSettings' => [
+                    'bats' => [
+                        'endpoint' => 'https://api.batscrm.com/leads',
+                        'auth_variant' => 'payload_authkey',
+                        'api_key' => '',
+                        'api_key_header' => 'X-API-Key',
+                        'require_ok_json' => true,
+                    ],
+                    'msgplane' => [
+                        'endpoint' => 'https://leads.msgplane.com',
+                        'auth_variant' => 'payload_authkey',
+                        'api_key' => '',
+                        'api_key_header' => 'X-API-Key',
+                        'require_ok_json' => true,
+                    ],
+                    'imove360' => [
+                        'endpoint' => 'https://app.imove360.com/webhook/leads',
+                        'auth_variant' => 'none',
+                        'api_key' => '',
+                        'api_key_header' => 'X-API-Key',
+                        'require_ok_json' => true,
+                    ],
+                    'capscrm' => [
+                        'endpoint' => 'https://capscrm.org/api/leads/store',
+                        'auth_variant' => 'header',
+                        'api_key' => '',
+                        'api_key_header' => 'X-API-KEY',
+                        'require_ok_json' => true,
+                    ],
+                    'onespacecrm' => [
+                        'endpoint' => 'https://crm.onespacecrm.com/api/lead',
+                        'auth_variant' => 'header',
+                        'api_key' => '',
+                        'api_key_header' => 'X-API-Key',
+                        'require_ok_json' => true,
+                    ],
+                    'mile_autotransport' => [
+                        'endpoint' => 'https://mile-autotransport.com/external/leads',
+                        'auth_variant' => 'payload_authkey',
+                        'api_key' => '',
+                        'api_key_header' => 'X-API-Key',
+                        'require_ok_json' => true,
+                    ],
+                ],
                 'i18n' => [
                     'confirm_reset' => __('Перезаписати існуючі відповідності мапінгу?', 'leadrouter'),
-                    'done' => __('Автозаповнення виконано', 'leadrouter'),
+                    'done' => __('Пресет успішно застосовано', 'leadrouter'),
                 ],
                 // назва complex-поля (щоб JS знав, що чіпати)
                 'field_name' => 'leadrouter_partner_map',

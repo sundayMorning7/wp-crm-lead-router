@@ -12,11 +12,69 @@
         return btn.closest('.cf-field.cf-complex') || null;
     }
 
+    function getPresetFromButton(btn, complex){
+        if (complex) {
+            const select = complex.querySelector('.js-lr-map-preset-select');
+            if (select && select.value) return select.value;
+        }
+
+        if (!btn) return 'bats';
+        return btn.getAttribute('data-lr-map-profile') || btn.getAttribute('data-map-preset') || 'bats';
+    }
+
+    function getDefaultsByPreset(preset){
+        const cfg = window.LRPartnerMap || {};
+        const key = preset || 'bats';
+
+        if (cfg.presets && Array.isArray(cfg.presets[key])) {
+            return cfg.presets[key];
+        }
+
+        return Array.isArray(cfg.defaults) ? cfg.defaults : [];
+    }
+
+    function getSettingsByPreset(preset){
+        const cfg = window.LRPartnerMap || {};
+        const key = preset || 'bats';
+
+        if (cfg.presetSettings && cfg.presetSettings[key] && typeof cfg.presetSettings[key] === 'object') {
+            return cfg.presetSettings[key];
+        }
+
+        return null;
+    }
+
+    function setFieldValue(selector, value){
+        const el = document.querySelector(selector);
+        if (!el) return;
+        el.value = value ?? '';
+        triggerInput(el);
+    }
+
+    function setCheckboxValue(selector, checked){
+        const el = document.querySelector(selector);
+        if (!el) return;
+
+        el.checked = !!checked;
+        triggerInput(el);
+    }
+
+    function applyPresetSettings(preset){
+        const settings = getSettingsByPreset(preset);
+        if (!settings) return;
+
+        setFieldValue('input[name$="[_leadrouter_partner_endpoint]"]', settings.endpoint || '');
+        setFieldValue('select[name$="[_leadrouter_partner_auth_variant]"]', settings.auth_variant || 'header');
+        // setFieldValue('input[name$="[_leadrouter_partner_api_key]"]', settings.api_key || '');
+        setFieldValue('input[name$="[_leadrouter_partner_api_key_header]"]', settings.api_key_header || 'X-API-Key');
+        setCheckboxValue('input[name$="[_leadrouter_partner_require_ok_json]"]', !!settings.require_ok_json);
+    }
+
     async function clearComplex(complex){
-        if (!complex) return;
+        if (!complex) return false;
 
         const msg = (window.LRPartnerMap && LRPartnerMap.i18n && LRPartnerMap.i18n.confirm_reset) || 'Reset mapping?';
-        if (!confirm(msg)) return;
+        if (!confirm(msg)) return false;
 
         const groupSel = ':scope .cf-complex__group';
 
@@ -47,6 +105,8 @@
             btn.click();
             await sleep(120);
         }
+
+        return true;
     }
 
     // чекаємо, поки CF домалює нову групу й поля
@@ -81,17 +141,21 @@
         if (inputDef)  { inputDef.value  = row.default_value ?? '';triggerInput(inputDef); }
     }
 
-    $(document).on('click', '.js-lr-autofill-map', async function (e){
+    $(document).on('click', '.js-lr-autofill-map, .js-lr-apply-map-preset', async function (e){
         e.preventDefault();
 
         const complex = findComplexContainerFromButton(e.currentTarget);
         if (!complex) return;
 
-        const defaults = (window.LRPartnerMap && Array.isArray(LRPartnerMap.defaults)) ? LRPartnerMap.defaults : [];
+        const preset = getPresetFromButton(e.currentTarget, complex);
+        const defaults = getDefaultsByPreset(preset);
         if (!defaults.length) return;
 
+        applyPresetSettings(preset);
+
         // ВАЖЛИВО: чекаємо очищення
-        await clearComplex(complex);
+        const confirmed = await clearComplex(complex);
+        if (!confirmed) return;
 
         // Послідовно додаємо рядки (щоб DOM точно встигав)
         for (const row of defaults) {
