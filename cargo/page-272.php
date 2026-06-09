@@ -27,6 +27,20 @@ if (isset($_POST['md_name']) && isset($_POST['md_email'])) {
     log_lead_attempt($rawPhone, $phoneCheck['valid'] ? 'valid' : 'invalid', $_POST);
 
     if (!$phoneCheck['valid']) {
+        $step3_restore = [
+            'md_name' => sanitize_text_field(wp_unslash($_POST['md_name'] ?? '')),
+            'md_email' => sanitize_email(wp_unslash($_POST['md_email'] ?? '')),
+            'md_phone' => sanitize_text_field($rawPhone),
+            'md_date' => sanitize_text_field(wp_unslash($_POST['md_date'] ?? '')),
+        ];
+
+        setcookie(
+            'md_step3_restore',
+            wp_json_encode($step3_restore, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            time() + 600,
+            '/'
+        );
+
         wp_safe_redirect(add_query_arg('phone_error', '1', get_permalink(20)));
         exit();
     }

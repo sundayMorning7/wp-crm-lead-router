@@ -57,6 +57,27 @@ if (isset($_GET['phone_error']) && $_GET['phone_error'] === '1') {
     $phone_error_message = 'This phone number doesn’t look right. Please double-check it to get an accurate quote.';
 }
 
+$step3_restore = [
+    'md_name' => '',
+    'md_email' => '',
+    'md_phone' => '',
+    'md_date' => '',
+];
+
+if (!empty($_COOKIE['md_step3_restore'])) {
+    $raw_restore = wp_unslash((string) $_COOKIE['md_step3_restore']);
+    $decoded_restore = json_decode($raw_restore, true);
+    if (is_array($decoded_restore)) {
+        $step3_restore['md_name'] = sanitize_text_field((string) ($decoded_restore['md_name'] ?? ''));
+        $step3_restore['md_email'] = sanitize_email((string) ($decoded_restore['md_email'] ?? ''));
+        $step3_restore['md_phone'] = sanitize_text_field((string) ($decoded_restore['md_phone'] ?? ''));
+        $step3_restore['md_date'] = sanitize_text_field((string) ($decoded_restore['md_date'] ?? ''));
+    }
+
+    // Одноразовое восстановление после редиректа
+    setcookie('md_step3_restore', '', time() - 3600, '/');
+}
+
 get_header(); ?>
 
     <div class="main">
@@ -93,6 +114,7 @@ get_header(); ?>
                                                                            autocomplete="new-password"
                                                                            name="md_name" data-name="Name"
                                                                            placeholder="Full Name" type="text" id="Name"
+                                                                           value="<?php echo esc_attr($step3_restore['md_name']); ?>"
                                                                            required><img
                                                         src="<?php echo get_template_directory_uri(); ?>/assets/images/tabler-icon-user.svg"
                                                         loading="lazy" alt=""
@@ -104,6 +126,7 @@ get_header(); ?>
                                                                            name="md_email" data-name="Email"
                                                                            autocomplete="new-password"
                                                                            placeholder="me@mail.com" type="email"
+                                                                           value="<?php echo esc_attr($step3_restore['md_email']); ?>"
                                                                            id="Email"
                                                                            required><img
                                                         src="<?php echo get_template_directory_uri(); ?>/assets/images/tabler-icon-mail.svg"
@@ -119,6 +142,7 @@ get_header(); ?>
                                                             autocomplete="new-password"
                                                             maxlength="256" name="md_phone"
                                                             required placeholder="+1 (000) 000-0000"
+                                                            value="<?php echo esc_attr($step3_restore['md_phone']); ?>"
                                                             type="text" id="md_test_phone2">
                                                 </div>
                                             </div>
@@ -134,7 +158,7 @@ get_header(); ?>
                                                 <input class="date-field w-input" autocomplete="new-password"
                                                        maxlength="256" name="md_date"
                                                        placeholder="Select Date"
-                                                       value=""
+                                                          value="<?php echo esc_attr($step3_restore['md_date']); ?>"
                                                        data-toggle="datepicker" type="text"
                                                        id="Date"
                                                        required><img
