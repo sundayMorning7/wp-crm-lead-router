@@ -51,6 +51,12 @@ function leadrouter_create_custom_fields()
 
     // OPTIONS
 
+    // Підказка зі списком доступних плейсхолдерів для шаблонів листів білінгу
+    $lr_email_ph_help = __('Available placeholders: {partner_name} {balance} {min_balance} {lead_price} {email} {site_name} {date}', 'leadrouter');
+
+    // Підказка для Stripe-листів — додаються плейсхолдери поповнення/помилки
+    $lr_email_ph_help_stripe = __('Available placeholders: {amount} {charge_error} {stripe_customer_id} {partner_name} {balance} {min_balance} {lead_price} {email} {site_name} {date}', 'leadrouter');
+
     Container::make('theme_options', __('LeadRouter Settings', 'leadrouter'))
         ->set_page_parent('leadrouter')
         ->set_page_menu_title(__('Налаштування', 'leadrouter'))
@@ -150,6 +156,73 @@ function leadrouter_create_custom_fields()
                 ->set_option_value('yes')
                 ->set_default_value('yes'),*/
 
+        ))
+        // ===== Листи білінгу — кожен тип в окремій вкладці =====
+        ->add_tab(__('Emails: general', 'leadrouter'), array(
+            Field::make('text', 'lr_billing_admin_email', __('Admin notification email', 'leadrouter'))
+                ->set_help_text(__('Where to send admin emails (negative balance, etc.). If empty, the site admin email is used.', 'leadrouter')),
+        ))
+        ->add_tab(__('Email: low balance', 'leadrouter'), array(
+            Field::make('text', 'lr_email_low_balance_subject', __('Subject', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help),
+            Field::make('rich_text', 'lr_email_low_balance_body', __('Body', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help),
+        ))
+        ->add_tab(__('Email: sending stopped', 'leadrouter'), array(
+            Field::make('text', 'lr_email_stopped_subject', __('Subject', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help),
+            Field::make('rich_text', 'lr_email_stopped_body', __('Body', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help),
+        ))
+        ->add_tab(__('Admin email: negative balance', 'leadrouter'), array(
+            Field::make('text', 'lr_email_admin_negative_subject', __('Subject', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help),
+            Field::make('rich_text', 'lr_email_admin_negative_body', __('Body', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help),
+        ))
+        // ===== Stripe-листи (поповнення) =====
+        ->add_tab(__('Email: Stripe success', 'leadrouter'), array(
+            Field::make('text', 'lr_email_stripe_success_subject', __('Subject', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help_stripe),
+            Field::make('rich_text', 'lr_email_stripe_success_body', __('Body', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help_stripe),
+        ))
+        ->add_tab(__('Email: Stripe declined', 'leadrouter'), array(
+            Field::make('text', 'lr_email_stripe_declined_subject', __('Subject', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help_stripe),
+            Field::make('rich_text', 'lr_email_stripe_declined_body', __('Body', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help_stripe),
+        ))
+        ->add_tab(__('Email: Stripe 3DS required', 'leadrouter'), array(
+            Field::make('text', 'lr_email_stripe_action_subject', __('Subject', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help_stripe),
+            Field::make('rich_text', 'lr_email_stripe_action_body', __('Body', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help_stripe),
+        ))
+        ->add_tab(__('Admin email: Stripe charge failed', 'leadrouter'), array(
+            Field::make('text', 'lr_email_stripe_admin_failed_subject', __('Subject', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help_stripe),
+            Field::make('rich_text', 'lr_email_stripe_admin_failed_body', __('Body', 'leadrouter'))
+                ->set_help_text($lr_email_ph_help_stripe),
+        ))
+        // ===== Stripe: ключі та налаштування =====
+        ->add_tab(__('Stripe', 'leadrouter'), array(
+            Field::make('text', 'lr_stripe_publishable_key', __('Publishable key', 'leadrouter'))
+                ->set_help_text(__('Publishable key (pk_...). Safe to use on the frontend.', 'leadrouter')),
+            Field::make('text', 'lr_stripe_secret_key', __('Secret key', 'leadrouter'))
+                ->set_help_text(__('Secret key (sk_...). Entered manually, stored in the DB. Keep it private.', 'leadrouter')),
+            Field::make('text', 'lr_stripe_webhook_secret', __('Webhook signing secret', 'leadrouter'))
+                ->set_help_text(__('Webhook signing secret (whsec_...). Used to verify the Stripe-Signature header.', 'leadrouter')),
+            Field::make('select', 'lr_stripe_currency', __('Currency', 'leadrouter'))
+                ->add_options(array(
+                    'usd' => 'USD',
+                    'eur' => 'EUR',
+                ))
+                ->set_default_value('usd')
+                ->set_help_text(__('Currency for Stripe operations.', 'leadrouter')),
+            Field::make('checkbox', 'lr_stripe_test_mode', __('Test mode', 'leadrouter'))
+                ->set_option_value('yes')
+                ->set_help_text(__('Informational flag: indicates that Stripe test keys are in use.', 'leadrouter')),
         ));
 
     // ===== GROUP =====
@@ -313,6 +386,27 @@ function leadrouter_create_custom_fields()
             Field::make('time', 'leadrouter_partner_sun_start', __('Початок', 'leadrouter'))->set_width(20),
             Field::make('time', 'leadrouter_partner_sun_end', __('Завершення', 'leadrouter'))->set_width(20),
             Field::make('html', 'leadrouter_partner_sun_label_end')->set_html('')->set_width(30),
+        ))
+        // ===== Білінг (вбудована сторінка білінгу партнера) =====
+        ->add_tab(__('Billing', 'leadrouter'), array(
+            Field::make('html', 'leadrouter_partner_billing_main')
+                ->set_html(function () {
+                    if (!class_exists('LR_Partner_Billing_Page')) {
+                        return '';
+                    }
+                    $pid = get_the_ID();
+                    return $pid ? LR_Partner_Billing_Page::tab_billing_main_html((int)$pid) : '';
+                }),
+        ))
+        ->add_tab(__('Billing history', 'leadrouter'), array(
+            Field::make('html', 'leadrouter_partner_billing_history')
+                ->set_html(function () {
+                    if (!class_exists('LR_Partner_Billing_Page')) {
+                        return '';
+                    }
+                    $pid = get_the_ID();
+                    return $pid ? LR_Partner_Billing_Page::tab_billing_history_html((int)$pid) : '';
+                }),
         ))
         ->add_tab(__('Тех інфо', 'leadrouter'), array(
 

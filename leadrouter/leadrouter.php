@@ -3,7 +3,7 @@
  * Plugin Name: LeadRouter by Maks Devda
  * Plugin URI: https://example.com/leadrouter
  * Description: Розподіл лідів між партнерами за групами з логами та адмін-інтерфейсом.
- * Version: 1.2.0
+ * Version: 1.6.2
  * Author: Maks Devda
  * Author URI: https://example.com
  * License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 }
 
 
-define('LEADROUTER_VERSION', '1.2.0');
+define('LEADROUTER_VERSION', '1.6.2');
 define('LEADROUTER_PLUGIN_FILE', __FILE__);
 define('LEADROUTER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('LEADROUTER_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -52,6 +52,17 @@ require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-flow.php
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_cron_new_leads.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_cron_await_leads.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_cron_error_leads.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-billing-db.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-billing.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-stripe.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-stripe-webhook.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-billing-mailer.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-billing-cron.php';
+
+// WP-CLI команди (leadrouter simulate-*, billing-test-setup). Файл сам захищений WP_CLI-гардом.
+if (defined('WP_CLI') && WP_CLI) {
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-cli.php';
+}
 
 if (is_admin()) {
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/class-leadrouter_leads_table.php';
@@ -67,6 +78,12 @@ if (is_admin()) {
 
     // Кастомная колонка и AJAX для тестовой отправки лида партнёру
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/lr-send-test-lead.php';
+
+    // Сторінка білінгу партнера
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/page-partner-billing.php';
+
+    // Загальний дашборд білінгу (LeadRouter → Billing)
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/page-billing-dashboard.php';
 
     LeadRouter_LogViewer::init();
 
@@ -274,6 +291,11 @@ CREATE TABLE {$table_leads} (
     ) ENGINE=InnoDB {$charset_collate};
     ";
     dbDelta($sql);
+
+    // Таблиці модуля білінгу партнерів
+    if (function_exists('leadrouter_install_billing_db')) {
+        leadrouter_install_billing_db();
+    }
 }
 
 /** Перевірка/апґрейд версії схеми */
@@ -308,6 +330,10 @@ LeadRouter_Hooks::init();
 LeadRouter_Cron_New_Leads::init();
 LeadRouter_Cron_Await_Leads::init();
 LeadRouter_Cron_Error_Leads::init();
+LR_Billing_Cron::register();
+
+// Stripe-вебхуки: POST /wp-json/leadrouter/v1/stripe-webhook (захист — підпис Stripe)
+add_action('rest_api_init', ['LR_Stripe_Webhook', 'register']);
 
 
 add_action('admin_menu', ['LeadRouter_Admin', 'register_menus']);
@@ -317,10 +343,29 @@ add_action('admin_menu', ['LeadRouter_Admin', 'register_menus']);
 /** Підписка на cron-воркер черги (для queued відправок) */
 add_action('leadrouter_queue_send', [LeadRouter_Flow::class, 'cron_send_worker'], 10, 5);
 
+/**
+ * Білінг: realtime-списання за лід після УСПІШНОЇ відправки партнеру.
+ * leadrouter_after_send стріляє і на успіх, і на помилку — тому списуємо
+ * тільки коли $result не WP_Error і містить ok=true. Дублі відсікає сам
+ * LR_Billing::deduct_for_lead (UNIQUE partner_id+lead_id).
+ */
+add_action('leadrouter_after_send', function ($lead_id, $partner_row, $result) {
+    if (is_wp_error($result) || empty($result['ok'])) {
+        return;
+    }
+    $partner_id = (int) (is_array($partner_row) ? ($partner_row['partner_id'] ?? 0) : 0);
+    if ($partner_id <= 0 || (int) $lead_id <= 0) {
+        return;
+    }
+    LR_Billing::deduct_for_lead($partner_id, (int) $lead_id);
+}, 10, 3);
+
 /* ===================== ТЕСТ/СЕРВІС ХУКИ ===================== */
 
 /** SEED UI: /wp-admin/?flow_seed=1&_wpnonce=...  */
 add_action('admin_init', function () {
+    // DEV ONLY — на продакшні ендпоінт неактивний (та сама логіка, що ховає кнопку нижче).
+    if (defined('LEADROUTER_PRODUCTION') && LEADROUTER_PRODUCTION) return;
     LeadRouter_Flow::run_seed_ui(20, [
         'group_meta_key' => '_leadrouter_partner_group',
         'statuses' => ['queued', 'sent', 'accepted'],
@@ -337,6 +382,8 @@ add_action('admin_init', function () {
 add_action('admin_init', function () {
     if (!is_admin()) return;
     if (!current_user_can('manage_options')) return;
+    // DEV ONLY — на продакшні ендпоінт неактивний (та сама логіка, що ховає кнопку нижче).
+    if (defined('LEADROUTER_PRODUCTION') && LEADROUTER_PRODUCTION) return;
     if (!isset($_GET['flow_purge']) || $_GET['flow_purge'] !== '1') return;
 
     if (!isset($_GET['_wpnonce']) || !wp_verify_nonce($_GET['_wpnonce'], 'leadrouter_flow_purge')) {
@@ -520,7 +567,7 @@ add_action('init', function () {
         }
 
         // інʼєкція utm_source/utm_medium, якщо utm порожні, але є gclid/fbclid/ttclid
-        $inject_source_by_clickid($first);
+
 
         if (!empty($first)) {
             $json = wp_json_encode($first);

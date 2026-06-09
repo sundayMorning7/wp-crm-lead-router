@@ -25,5 +25,23 @@ LeadRouter: розподіл лідів між партнерами за гру�
 5. Використовуйте `leadrouter_assign_lead( $group_id, $lead_id )` у вашому коді.
 
 == Changelog ==
+= 1.4.3 =
+* Фінальна очистка: видалено колонки billing_paused / paused_reason / paused_at з таблиці leadrouter_partner_billing (увімкнено міграцію leadrouter_billing_db_migrate, DROP COLUMN).
+* Перехід на модель active/deactivated (deactivated_by_billing) завершено; косметичні перейменування (мітка deactivated_partner, CSS lr-badge--deactivated).
+
+= 1.4.2 =
+* Нові поля білінгу партнера: email, allow_negative_balance, disable_low_balance_email, deactivated_by_billing та прапорці сповіщень (notified_low_balance, notified_stopped, notified_admin_negative).
+* Прибрано механізм паузи: видалено колонки billing_paused / paused_reason / paused_at (міграція leadrouter_billing_db_migrate). Замість паузи — deactivated_by_billing.
+
+= 1.4.0 =
+* Білінг партнера вбудовано у сторінку партнера як вкладки Carbon Fields (Білінг + Білінг history).
+* Налаштування та ручні операції — у 2 колонки; історія (транзакції/audit/помилки) — окрема вкладка з AJAX-пагінацією.
+* Неймспейснуто DOM-імена полів білінгу (lr_bil_*), щоб не засмічувати $_POST при збереженні поста партнера.
+
+= 1.3.0 =
+* Модуль білінгу партнерів: баланс, транзакції, audit trail та інтеграція зі Stripe.
+* Realtime списання балансу після успішного відправлення ліда (хук leadrouter_after_send).
+* Cron кожні 2 хв: перевірка балансів і Stripe auto-charge при balance < min_balance.
+
 = 1.0.0 =
 * Початковий реліз.

@@ -25,6 +25,16 @@ class LeadRouter_Admin
         add_action('wp_ajax_leadrouter_manual_broadcast_bulk', [__CLASS__, 'ajax_leadrouter_manual_broadcast_bulk']);
         add_action('wp_ajax_leadrouter_delete_leads_cascade', [__CLASS__, 'ajax_delete_leads_cascade']);
 
+        // Білінг партнера: меню + AJAX-ендпоінти
+        if (class_exists('LR_Partner_Billing_Page')) {
+            LR_Partner_Billing_Page::register();
+        }
+
+        // Дашборд білінгу: AJAX/ассети + CSV-експорт
+        if (class_exists('LR_Billing_Dashboard')) {
+            LR_Billing_Dashboard::register();
+        }
+
     }
 
 
@@ -211,6 +221,11 @@ class LeadRouter_Admin
             'leadrouter-logviewer',
             ['LeadRouter_LogViewer', 'render_page']
         );
+
+        // Дашборд білінгу (LeadRouter → Billing)
+        if (class_exists('LR_Billing_Dashboard')) {
+            LR_Billing_Dashboard::register_menu();
+        }
 
     }
 

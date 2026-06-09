@@ -12,6 +12,92 @@ add_action('manage_leadrouter_partner_posts_custom_column', function($column, $p
     }
 }, 10, 2);
 
+// Колонка "Статус" (активний/неактивний) у таблиці партнерів —
+// за полем з вкладки "Основні" (_leadrouter_partner_active). Ставимо одразу після назви.
+add_filter('manage_leadrouter_partner_posts_columns', function($columns) {
+    $new = [];
+    foreach ($columns as $key => $label) {
+        $new[$key] = $label;
+        if ($key === 'title') {
+            $new['lr_partner_status']  = __('Статус', 'leadrouter');
+            $new['lr_partner_balance'] = __('Баланс', 'leadrouter');
+        }
+    }
+    // Фолбек: якщо колонки title немає — додаємо в кінець
+    if (!isset($new['lr_partner_status'])) {
+        $new['lr_partner_status'] = __('Статус', 'leadrouter');
+    }
+    if (!isset($new['lr_partner_balance'])) {
+        $new['lr_partner_balance'] = __('Баланс', 'leadrouter');
+    }
+    return $new;
+});
+
+add_action('manage_leadrouter_partner_posts_custom_column', function($column, $post_id) {
+    if ($column !== 'lr_partner_status') {
+        return;
+    }
+    // Порожнє/відсутнє значення = активний (та сама логіка, що в LeadRouter_Partners::is_active)
+    $raw = get_post_meta($post_id, '_leadrouter_partner_active', true);
+    $is_active = ($raw === '' || $raw === null) ? true : ($raw == '1');
+
+    if ($is_active) {
+        echo '<span style="display:inline-flex;align-items:center;gap:4px;color:#0b8a31;font-weight:600;">'
+            . '<span class="dashicons dashicons-yes-alt"></span>'
+            . esc_html__('Активний', 'leadrouter') . '</span>';
+    } else {
+        echo '<span style="display:inline-flex;align-items:center;gap:4px;color:#d63638;font-weight:600;">'
+            . '<span class="dashicons dashicons-no-alt"></span>'
+            . esc_html__('Неактивний', 'leadrouter') . '</span>';
+    }
+}, 10, 2);
+
+// Колонка "Баланс" у таблиці партнерів — із таблиці leadrouter_partner_billing.
+// Виділяємо кольором: червоний — від'ємний, помаранчевий — низький (< min_balance), зелений — норма.
+add_action('manage_leadrouter_partner_posts_custom_column', function($column, $post_id) {
+    if ($column !== 'lr_partner_balance') {
+        return;
+    }
+
+    // Кешуємо всі білінг-рядки одним запитом (на весь рендер списку)
+    static $billing_map = null;
+    if ($billing_map === null) {
+        global $wpdb;
+        $t_billing = $wpdb->prefix . 'leadrouter_partner_billing';
+        $billing_map = [];
+        $rows = $wpdb->get_results(
+            "SELECT partner_id, balance, min_balance, currency FROM {$t_billing}",
+            ARRAY_A
+        );
+        foreach ((array)$rows as $r) {
+            $billing_map[(int)$r['partner_id']] = $r;
+        }
+    }
+
+    // Немає білінг-профілю — показуємо прочерк
+    if (!isset($billing_map[(int)$post_id])) {
+        echo '<span style="color:#787c82;">—</span>';
+        return;
+    }
+
+    $row      = $billing_map[(int)$post_id];
+    $balance  = (float)$row['balance'];
+    $min      = (float)$row['min_balance'];
+    $currency = (string)$row['currency'];
+
+    // Колір за станом балансу
+    if ($balance < 0) {
+        $color = '#d63638'; // червоний — від'ємний
+    } elseif ($balance < $min) {
+        $color = '#e08000'; // помаранчевий — низький
+    } else {
+        $color = '#0b8a31'; // зелений — норма
+    }
+
+    echo '<strong style="color:' . esc_attr($color) . ';">'
+        . esc_html(number_format($balance, 2) . ' ' . $currency) . '</strong>';
+}, 10, 2);
+
 // Подключаем JS для обработки клика по кнопке
 add_action('admin_enqueue_scripts', function($hook) {
     global $typenow;
