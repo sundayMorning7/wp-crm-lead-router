@@ -35,6 +35,11 @@ class LeadRouter_Admin
             LR_Billing_Dashboard::register();
         }
 
+        // Звіт білінгу: ассети + admin-post обробники
+        if (class_exists('LR_Billing_Report')) {
+            LR_Billing_Report::register();
+        }
+
     }
 
 
@@ -222,9 +227,19 @@ class LeadRouter_Admin
             ['LeadRouter_LogViewer', 'render_page']
         );
 
+        // Заявки-скарги партнерів (LeadRouter → Complaints)
+        if (class_exists('LR_Complaints_Admin')) {
+            LR_Complaints_Admin::register_menu();
+        }
+
         // Дашборд білінгу (LeadRouter → Billing)
         if (class_exists('LR_Billing_Dashboard')) {
             LR_Billing_Dashboard::register_menu();
+        }
+
+        // Звіт білінгу за місяць (LeadRouter → Report)
+        if (class_exists('LR_Billing_Report')) {
+            LR_Billing_Report::register_menu();
         }
 
     }

@@ -3,7 +3,7 @@
  * Plugin Name: LeadRouter by Maks Devda
  * Plugin URI: https://example.com/leadrouter
  * Description: Розподіл лідів між партнерами за групами з логами та адмін-інтерфейсом.
- * Version: 1.6.2
+ * Version: 1.7.2
  * Author: Maks Devda
  * Author URI: https://example.com
  * License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 }
 
 
-define('LEADROUTER_VERSION', '1.6.2');
+define('LEADROUTER_VERSION', '1.7.2');
 define('LEADROUTER_PLUGIN_FILE', __FILE__);
 define('LEADROUTER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('LEADROUTER_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -59,6 +59,17 @@ require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-stripe-webhook.p
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-billing-mailer.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-billing-cron.php';
 
+// Кабінет партнера: звʼязок user↔partner, роль, доступ
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-partner-auth.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-partner-portal.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-partner-card.php';
+
+// Адмін: перегляд кабінету партнера («Login as partner»), лише manage_options
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-partner-impersonate.php';
+
+// Скарги партнерів на ліди (core: submit/валідація/лист + AJAX-ендпоінт)
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-complaints.php';
+
 // WP-CLI команди (leadrouter simulate-*, billing-test-setup). Файл сам захищений WP_CLI-гардом.
 if (defined('WP_CLI') && WP_CLI) {
     require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-cli.php';
@@ -82,8 +93,18 @@ if (is_admin()) {
     // Сторінка білінгу партнера
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/page-partner-billing.php';
 
+    // Метабокс «Доступ до кабінету» на екрані партнера
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/lr-partner-user-link.php';
+    LR_Partner_User_Link::register();
+
     // Загальний дашборд білінгу (LeadRouter → Billing)
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/page-billing-dashboard.php';
+
+    // Звіт білінгу за місяць (LeadRouter → Report)
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/page-billing-report.php';
+
+    // Адмін-інтерфейс заявок-скарг (LeadRouter → Complaints)
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/page-complaints.php';
 
     LeadRouter_LogViewer::init();
 
@@ -292,9 +313,50 @@ CREATE TABLE {$table_leads} (
     ";
     dbDelta($sql);
 
+    // 6) Денні FB-показники для білінг-звіту (Ad Spend / Fb leads).
+    //    Вводяться вручну в адмінці (один рядок на день, дата в EST).
+    $table_daily_adstats = $wpdb->prefix . 'leadrouter_daily_adstats';
+    $sql = "
+    CREATE TABLE {$table_daily_adstats} (
+      stat_date DATE NOT NULL,
+      ad_spend DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      fb_leads INT UNSIGNED NOT NULL DEFAULT 0,
+      updated_at DATETIME NULL,
+      PRIMARY KEY (stat_date)
+    ) ENGINE=InnoDB {$charset_collate};
+    ";
+    dbDelta($sql);
+
+    // 7) Скарги/претензії партнерів на ліди (інбокс: new/read).
+    //    Одна скарга на лід — UNIQUE (partner_id, lead_id). Час — EST.
+    $table_complaints = $wpdb->prefix . 'leadrouter_lead_complaints';
+    $sql = "
+    CREATE TABLE {$table_complaints} (
+      id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+      lead_id BIGINT(20) UNSIGNED NOT NULL,
+      partner_id BIGINT(20) UNSIGNED NOT NULL,
+      topic VARCHAR(191) NOT NULL,
+      message TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'new',
+      created_at DATETIME NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_partner_lead (partner_id, lead_id),
+      KEY idx_lead_id (lead_id),
+      KEY idx_partner_id (partner_id),
+      KEY idx_status (status),
+      KEY idx_created_at (created_at)
+    ) ENGINE=InnoDB {$charset_collate};
+    ";
+    dbDelta($sql);
+
     // Таблиці модуля білінгу партнерів
     if (function_exists('leadrouter_install_billing_db')) {
         leadrouter_install_billing_db();
+    }
+
+    // Роль `partner` для кабінету (ідемпотентно)
+    if (class_exists('LR_Partner_Auth')) {
+        LR_Partner_Auth::install_role();
     }
 }
 
@@ -315,6 +377,12 @@ register_activation_hook(__FILE__, function () {
     leadrouter_install_db();
     update_option('leadrouter_version', LEADROUTER_VERSION);
     leadrouter_register_cpts();
+    if (class_exists('LR_Partner_Auth')) {
+        LR_Partner_Auth::install_role();
+    }
+    if (class_exists('LR_Partner_Portal')) {
+        LR_Partner_Portal::ensure_cabinet_page();
+    }
     flush_rewrite_rules();
 });
 register_deactivation_hook(__FILE__, function () {
@@ -327,6 +395,11 @@ add_action('init', ['LeadRouter_Admin', 'add_scripts']);
 add_action('init', ['LeadRouter_Admin', 'register_ajax']);
 
 LeadRouter_Hooks::init();
+LR_Partner_Auth::register();
+LR_Partner_Portal::register();
+LR_Partner_Card::register();
+LR_Partner_Impersonate::register();
+LR_Complaints::register();
 LeadRouter_Cron_New_Leads::init();
 LeadRouter_Cron_Await_Leads::init();
 LeadRouter_Cron_Error_Leads::init();

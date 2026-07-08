@@ -195,7 +195,7 @@ if (!class_exists('LR_Billing_Cron')) {
             // Критично для партнерів з allow_negative_balance=1: їх не деактивують, а отже
             // reset через реактивацію (reset_all_notifications) для них ніколи не спрацьовує,
             // і без цього блоку кожен лист пішов би лише раз за весь час життя профілю.
-            if ($balance >= $min_balance && (int)$row['notified_low_balance'] === 1) {
+            if ($balance >= ($min_balance * 1.5) && (int)$row['notified_low_balance'] === 1) {
                 LR_Billing::reset_notification_flag($partner_id, 'notified_low_balance');
                 $row['notified_low_balance'] = 0;
             }
@@ -242,7 +242,9 @@ if (!class_exists('LR_Billing_Cron')) {
             }
 
             // 3) Лист-попередження про низький баланс (один раз)
-            if ($balance < $min_balance && (int)$row['notified_low_balance'] === 0) {
+            //    Шлемо РАНІШЕ за auto-charge поріг: коли баланс наближається до min_balance
+            //    (1.5× від нього), а не вже впав нижче. Auto-charge (Блок 2) лишається на min_balance.
+            if ($balance < ($min_balance * 1.5) && (int)$row['notified_low_balance'] === 0) {
                 LR_Billing_Mailer::low_balance($partner_id, $row);
                 LR_Billing::set_notification_flag($partner_id, 'notified_low_balance');
             }

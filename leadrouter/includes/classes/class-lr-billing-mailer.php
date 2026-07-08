@@ -70,6 +70,37 @@ if (!class_exists('LR_Billing_Mailer')) {
             );
         }
 
+        /**
+         * Лист партнеру з доступами до кабінету / новим паролем.
+         * Єдиний канал доставки паролю. НЕ копіюється адміну (пароль адмін не бачить).
+         */
+        public static function account_access(int $partner_id, string $to, string $login, string $password): bool
+        {
+            $to = trim($to);
+            if ($to === '') {
+                return false;
+            }
+
+            $row = self::billing_row($partner_id);
+
+            [$subject, $body] = self::get_template('account_access');
+            $vars = self::build_vars($partner_id, $row, [
+                'login'       => $login,
+                'password'    => $password,
+                'cabinet_url' => class_exists('LR_Partner_Auth')
+                    ? LR_Partner_Auth::cabinet_url()
+                    : home_url('/partner/'),
+            ]);
+
+            return self::send(
+                $to,
+                self::render_template($subject, $vars),
+                self::render_template($body, $vars),
+                $partner_id,
+                'account_access'
+            );
+        }
+
         /** Лист адміну про від'ємний баланс партнера */
         public static function admin_negative(int $partner_id, array $partner_row): bool
         {
@@ -318,6 +349,7 @@ if (!class_exists('LR_Billing_Mailer')) {
         private static function get_template(string $type): array
         {
             $map = [
+                'account_access' => ['lr_email_account_access_subject', 'lr_email_account_access_body'],
                 'low_balance'    => ['lr_email_low_balance_subject', 'lr_email_low_balance_body'],
                 'stopped'        => ['lr_email_stopped_subject', 'lr_email_stopped_body'],
                 'admin_negative' => ['lr_email_admin_negative_subject', 'lr_email_admin_negative_body'],
@@ -351,50 +383,59 @@ if (!class_exists('LR_Billing_Mailer')) {
         private static function default_templates(): array
         {
             return [
+                'account_access' => [
+                    'subject' => __('LeadRouter: cabinet access — {partner_name}', 'leadrouter'),
+                    'body'    => '<p>' . __('Partner <strong>{partner_name}</strong>,', 'leadrouter') . '</p>'
+                        . '<p>' . __('Access to your personal cabinet has been created for you.', 'leadrouter') . '</p>'
+                        . '<p>' . __('Login: <strong>{login}</strong><br>Password: <strong>{password}</strong>', 'leadrouter') . '</p>'
+                        . '<p>' . __('Sign in: <a href="{cabinet_url}">{cabinet_url}</a>', 'leadrouter') . '</p>'
+                        . '<p>' . __('For security reasons, please do not share these credentials with anyone.', 'leadrouter') . '</p>'
+                        . '<p>{site_name} — {date}</p>',
+                ],
                 'low_balance' => [
-                    'subject' => __('LeadRouter: низький баланс — {partner_name}', 'leadrouter'),
-                    'body'    => '<p>' . __('Партнер <strong>{partner_name}</strong>,', 'leadrouter') . '</p>'
-                        . '<p>' . __('Ваш баланс {balance} нижчий за поріг {min_balance}. Поповніть баланс, щоб уникнути зупинки відправки лідів.', 'leadrouter') . '</p>'
+                    'subject' => __('LeadRouter: low balance — {partner_name}', 'leadrouter'),
+                    'body'    => '<p>' . __('Partner <strong>{partner_name}</strong>,', 'leadrouter') . '</p>'
+                        . '<p>' . __('Your balance {balance} is below the threshold {min_balance}. Please top up your balance to avoid a pause in lead delivery.', 'leadrouter') . '</p>'
                         . '<p>{site_name} — {date}</p>',
                 ],
                 'stopped' => [
-                    'subject' => __('LeadRouter: відправку лідів зупинено — {partner_name}', 'leadrouter'),
-                    'body'    => '<p>' . __('Партнер <strong>{partner_name}</strong>,', 'leadrouter') . '</p>'
-                        . '<p>' . __('Відправку лідів зупинено через недостатній баланс ({balance}). Поповніть баланс для відновлення.', 'leadrouter') . '</p>'
+                    'subject' => __('LeadRouter: lead delivery paused — {partner_name}', 'leadrouter'),
+                    'body'    => '<p>' . __('Partner <strong>{partner_name}</strong>,', 'leadrouter') . '</p>'
+                        . '<p>' . __('Lead delivery has been paused due to insufficient balance ({balance}). Please top up your balance to resume.', 'leadrouter') . '</p>'
                         . '<p>{site_name} — {date}</p>',
                 ],
                 'admin_negative' => [
-                    'subject' => __('LeadRouter: від\'ємний баланс партнера {partner_name}', 'leadrouter'),
-                    'body'    => '<p>' . __('У партнера <strong>{partner_name}</strong> від\'ємний баланс: {balance}.', 'leadrouter') . '</p>'
-                        . '<p>' . __('Поріг: {min_balance}, ціна ліда: {lead_price}.', 'leadrouter') . '</p>'
+                    'subject' => __('LeadRouter: partner negative balance {partner_name}', 'leadrouter'),
+                    'body'    => '<p>' . __('Partner <strong>{partner_name}</strong> has a negative balance: {balance}.', 'leadrouter') . '</p>'
+                        . '<p>' . __('Threshold: {min_balance}, lead price: {lead_price}.', 'leadrouter') . '</p>'
                         . '<p>{site_name} — {date}</p>',
                 ],
                 'stripe_success' => [
-                    'subject' => __('LeadRouter: баланс поповнено — {partner_name}', 'leadrouter'),
-                    'body'    => '<p>' . __('Партнер <strong>{partner_name}</strong>,', 'leadrouter') . '</p>'
-                        . '<p>' . __('Ваш баланс успішно поповнено на {amount}. Поточний баланс: {balance}.', 'leadrouter') . '</p>'
-                        . '<p>' . __('Дякуємо за співпрацю!', 'leadrouter') . '</p>'
+                    'subject' => __('LeadRouter: balance topped up — {partner_name}', 'leadrouter'),
+                    'body'    => '<p>' . __('Partner <strong>{partner_name}</strong>,', 'leadrouter') . '</p>'
+                        . '<p>' . __('Your balance has been successfully topped up by {amount}. Current balance: {balance}.', 'leadrouter') . '</p>'
+                        . '<p>' . __('Thank you for your business!', 'leadrouter') . '</p>'
                         . '<p>{site_name} — {date}</p>',
                 ],
                 'stripe_declined' => [
-                    'subject' => __('LeadRouter: оплату відхилено — {partner_name}', 'leadrouter'),
-                    'body'    => '<p>' . __('Партнер <strong>{partner_name}</strong>,', 'leadrouter') . '</p>'
-                        . '<p>' . __('Списання з вашої картки відхилено ({charge_error}). Відправку лідів призупинено.', 'leadrouter') . '</p>'
-                        . '<p>' . __('Будь ласка, оновіть платіжний метод і поповніть баланс для відновлення.', 'leadrouter') . '</p>'
+                    'subject' => __('LeadRouter: payment declined — {partner_name}', 'leadrouter'),
+                    'body'    => '<p>' . __('Partner <strong>{partner_name}</strong>,', 'leadrouter') . '</p>'
+                        . '<p>' . __('A charge to your card was declined ({charge_error}). Lead delivery has been paused.', 'leadrouter') . '</p>'
+                        . '<p>' . __('Please update your payment method and top up your balance to resume.', 'leadrouter') . '</p>'
                         . '<p>{site_name} — {date}</p>',
                 ],
                 'stripe_action' => [
-                    'subject' => __('LeadRouter: потрібне підтвердження оплати — {partner_name}', 'leadrouter'),
-                    'body'    => '<p>' . __('Партнер <strong>{partner_name}</strong>,', 'leadrouter') . '</p>'
-                        . '<p>' . __('Банк вимагає додаткове підтвердження платежу (3D Secure). Відправку лідів призупинено до завершення автентифікації.', 'leadrouter') . '</p>'
-                        . '<p>' . __('Будь ласка, підтвердьте оплату в особистому кабінеті або зверніться до підтримки.', 'leadrouter') . '</p>'
+                    'subject' => __('LeadRouter: payment confirmation required — {partner_name}', 'leadrouter'),
+                    'body'    => '<p>' . __('Partner <strong>{partner_name}</strong>,', 'leadrouter') . '</p>'
+                        . '<p>' . __('Your bank requires additional payment confirmation (3D Secure). Lead delivery has been paused until authentication is completed.', 'leadrouter') . '</p>'
+                        . '<p>' . __('Please confirm the payment in your personal cabinet or contact support.', 'leadrouter') . '</p>'
                         . '<p>{site_name} — {date}</p>',
                 ],
                 'stripe_admin_failed' => [
-                    'subject' => __('LeadRouter: Stripe charge не вдався — {partner_name}', 'leadrouter'),
-                    'body'    => '<p>' . __('Не вдалося поповнити баланс партнера <strong>{partner_name}</strong> через Stripe.', 'leadrouter') . '</p>'
-                        . '<p>' . __('Сума: {amount}. Причина: {charge_error}.', 'leadrouter') . '</p>'
-                        . '<p>' . __('Stripe customer: {stripe_customer_id}. Баланс партнера: {balance}.', 'leadrouter') . '</p>'
+                    'subject' => __('LeadRouter: Stripe charge failed — {partner_name}', 'leadrouter'),
+                    'body'    => '<p>' . __('Failed to top up the balance of partner <strong>{partner_name}</strong> via Stripe.', 'leadrouter') . '</p>'
+                        . '<p>' . __('Amount: {amount}. Reason: {charge_error}.', 'leadrouter') . '</p>'
+                        . '<p>' . __('Stripe customer: {stripe_customer_id}. Partner balance: {balance}.', 'leadrouter') . '</p>'
                         . '<p>{site_name} — {date}</p>',
                 ],
             ];
@@ -468,7 +509,16 @@ if (!class_exists('LR_Billing_Mailer')) {
         /** Поточна дата/час в EST */
         private static function now_est(): string
         {
-            return (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('Y-m-d H:i');
+           
+           
+           /* return (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('Y-m-d H:i');
+        }*/
+        
+        
+        // Американський формат дати/часу для листів: 07/06/2026 3:45 PM EST.
+            // Мітку EST лишаємо літеральною (як і всюди в плагіні), а не через 'T',
+            // щоб влітку не показувати EDT.
+            return (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('m/d/Y g:i A \E\S\T');
         }
     }
 }

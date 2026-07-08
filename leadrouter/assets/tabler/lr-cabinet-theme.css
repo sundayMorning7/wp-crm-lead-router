@@ -1,0 +1,98 @@
+/*
+ * LeadRouter — бренд-оверрайди поверх Tabler для кабінету партнера.
+ *
+ * Скоуп: усе під .lr-cabinet (+ body.lr-cabinet-page). Tabler підключається ЛИШЕ
+ * на сторінці кабінету (окремий мінімальний шаблон без Webflow-стилів теми),
+ * тож колізій із темою cargo немає в обидва боки.
+ *
+ * Палітра/шрифти теми cargo:
+ *   --orange #fe7800 (hover #e66c00), --black #141414 на білому,
+ *   статуси green #478d59 / orange #fe7800 / red; Onest (текст), Anybody (заголовки).
+ */
+
+/* ── Шрифти кабінету ─────────────────────────────────────────── */
+body.lr-cabinet-page,
+.lr-cabinet {
+    --tblr-font-sans-serif: "Onest", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ── Бренд-кольори через CSS-змінні Tabler ───────────────────── */
+.lr-cabinet {
+    --tblr-primary: #fe7800;
+    --tblr-primary-rgb: 254, 120, 0;
+    --tblr-primary-fg: #ffffff;
+
+    --tblr-link-color: #fe7800;
+    --tblr-link-color-rgb: 254, 120, 0;
+    --tblr-link-hover-color: #e66c00;
+
+    /* Статуси */
+    --tblr-green: #478d59;
+    --tblr-green-rgb: 71, 141, 89;
+    --tblr-orange: #fe7800;
+    --tblr-orange-rgb: 254, 120, 0;
+    --tblr-red: #d63638;
+    --tblr-red-rgb: 214, 54, 56;
+
+    --tblr-body-color: #141414;
+    --tblr-body-color-rgb: 20, 20, 20;
+    color: #141414;
+}
+
+/* ── Заголовки — Anybody ─────────────────────────────────────── */
+.lr-cabinet h1, .lr-cabinet h2, .lr-cabinet h3,
+.lr-cabinet h4, .lr-cabinet h5, .lr-cabinet h6,
+.lr-cabinet .h1, .lr-cabinet .h2, .lr-cabinet .h3,
+.lr-cabinet .card-title, .lr-cabinet .page-title, .lr-cabinet .navbar-brand {
+    font-family: "Anybody", var(--tblr-font-sans-serif);
+    font-weight: 700;
+    color: #141414;
+}
+
+/* ── Кнопка primary — фірмовий помаранчевий + hover #e66c00 ───
+   BS5 хардкодить hover на етапі збірки, тож перевизначаємо явно. */
+.lr-cabinet .btn-primary {
+    --tblr-btn-color: #fff;
+    --tblr-btn-bg: #fe7800;
+    --tblr-btn-border-color: #fe7800;
+    --tblr-btn-hover-color: #fff;
+    --tblr-btn-hover-bg: #e66c00;
+    --tblr-btn-hover-border-color: #e66c00;
+    --tblr-btn-active-color: #fff;
+    --tblr-btn-active-bg: #e66c00;
+    --tblr-btn-active-border-color: #e66c00;
+    --tblr-btn-disabled-bg: #fe7800;
+    --tblr-btn-disabled-border-color: #fe7800;
+}
+
+/* Посилання у фірмовому кольорі */
+.lr-cabinet a:not(.btn) { color: #fe7800; }
+.lr-cabinet a:not(.btn):hover { color: #e66c00; }
+
+/* ── Сторінка кабінету ───────────────────────────────────────── */
+body.lr-cabinet-page {
+    background-color: #f6f7f9;
+    color: #141414;
+    margin: 0;
+}
+
+/* ── Статус-бейджі (аліаси під палітру) ──────────────────────── */
+.lr-cabinet .lr-status-active      { background-color: #478d59 !important; color: #fff !important; }
+.lr-cabinet .lr-status-low         { background-color: #fe7800 !important; color: #fff !important; }
+.lr-cabinet .lr-status-deactivated { background-color: #d63638 !important; color: #fff !important; }
+
+/* ── Екран авторизації (по центру) ───────────────────────────── */
+.lr-cabinet .lr-auth-wrap {
+    min-height: 80vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+}
+.lr-cabinet .lr-auth-card { width: 100%; max-width: 420px; }
+.lr-cabinet .lr-auth-logo { text-align: center; margin-bottom: 8px; font-weight: 800; }
+
+/* Навбар кабінету */
+.lr-cabinet .navbar { background-color: #fff; border-bottom: 1px solid rgba(20,20,20,.08); }
+.lr-cabinet .navbar-brand { color: #141414; }
+.lr-cabinet .navbar .lr-navbar-form { display: inline; margin: 0; }

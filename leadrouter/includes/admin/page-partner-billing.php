@@ -118,7 +118,16 @@ if (!class_exists('LR_Partner_Billing_Page')) {
                 $badge = '<span class="lr-badge lr-badge--active">✅ ' . esc_html__('Active', 'leadrouter') . '</span>';
             }
 
-            return '<strong>' . esc_html__('Status:', 'leadrouter') . '</strong> ' . $badge;
+            $view_cabinet = '';
+            if (current_user_can('manage_options') && class_exists('LR_Partner_Impersonate')
+                && class_exists('LR_Partner_Auth') && LR_Partner_Auth::get_user_id_for_partner($partner_id) > 0
+            ) {
+                $view_cabinet = ' <a class="button button-small" href="'
+                    . esc_url(LR_Partner_Impersonate::view_url($partner_id)) . '">'
+                    . esc_html__('View cabinet', 'leadrouter') . '</a>';
+            }
+
+            return '<strong>' . esc_html__('Status:', 'leadrouter') . '</strong> ' . $badge . $view_cabinet;
         }
 
         /** Бокс налаштувань (без <form> — кнопка через AJAX) */
@@ -352,6 +361,12 @@ if (!class_exists('LR_Partner_Billing_Page')) {
 
             $amount_str = ($amount > 0 ? '+' : '') . number_format($amount, 2) . ' ' . $currency;
 
+            // Для списань за лід показуємо згенерований англ. лейбл (а не сирий
+            // description), щоб і старі укр-записи в БД виглядали коректно.
+            $descr = ($type === 'spend' && $lead_id > 0)
+                ? sprintf(__('Lead charge #%d', 'leadrouter'), $lead_id)
+                : (string)($r['description'] ?? '');
+
             ob_start();
             ?>
             <tr>
@@ -360,7 +375,7 @@ if (!class_exists('LR_Partner_Billing_Page')) {
                 <td><?php echo $lead_id > 0 ? '#' . (int)$lead_id : '—'; ?></td>
                 <td><?php echo esc_html($amount_str); ?></td>
                 <td><?php echo esc_html(number_format((float)($r['balance_after'] ?? 0), 2)); ?></td>
-                <td><?php echo esc_html((string)($r['description'] ?? '')); ?></td>
+                <td><?php echo esc_html($descr); ?></td>
             </tr>
             <?php
             return ob_get_clean();
@@ -707,6 +722,14 @@ if (!class_exists('LR_Partner_Billing_Page')) {
                     'disable_low_balance_email' => $data['disable_low_balance_email'],
                 ],
             ]);
+
+            // Білінговий email — основне джерело акаунта кабінету, а він зберігається
+            // саме тут (AJAX), а не через save_post. Тож після збереження пробуємо
+            // ідемпотентно провізіонінг: якщо email зʼявився/змінився і user ще не
+            // привʼязаний — акаунт створиться. Дубль не плодимо (метод сам це перевіряє).
+            if (class_exists('LR_Partner_Auth')) {
+                LR_Partner_Auth::maybe_provision_on_save($partner_id);
+            }
 
             wp_send_json_success([
                 'message'     => __('Settings saved', 'leadrouter'),

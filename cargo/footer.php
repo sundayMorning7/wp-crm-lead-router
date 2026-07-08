@@ -93,7 +93,11 @@ if (is_page(22)) {
 
 
 ?>
-
+<?php
+echo 'Unix time(): ' . time() . '<br>';
+echo 'UTC (gmdate): ' . gmdate('Y-m-d H:i:s') . ' UTC<br>';
+echo 'Server local: ' . date('Y-m-d H:i:s') . '<br>';
+echo 'PHP default tz: ' . date_default_timezone_get() . '<br>'; ?>
 
 
 

@@ -138,6 +138,14 @@ if (!class_exists('LR_Stripe_Webhook')) {
                         self::on_dispute_created($event, $partner_id);
                         break;
 
+                    case 'checkout.session.completed':
+                        self::on_checkout_completed($event, $partner_id);
+                        break;
+
+                    case 'setup_intent.succeeded':
+                        self::on_setup_intent_succeeded($event, $partner_id);
+                        break;
+
                     default:
                         // Підписана, але нецікава нам подія — фіксуємо й ігноруємо.
                         $final_status = 'ignored';
@@ -380,6 +388,44 @@ if (!class_exists('LR_Stripe_Webhook')) {
                 'entity_type'  => 'partner_billing',
                 'context_json' => ['dispute' => $dispute_id, 'charge' => $ch_id, 'reason' => $reason, 'amount' => $amount],
             ]);
+        }
+
+        /**
+         * checkout.session.completed (mode=setup) — підстраховка для прив'язки картки.
+         * Payload не розгорнутий, тож ретривимо сесію (expand setup_intent.payment_method)
+         * і зберігаємо картку. Ідемпотентно: повторне збереження тих самих даних безпечне.
+         */
+        private static function on_checkout_completed(array $event, int $partner_id): void
+        {
+            if ($partner_id <= 0 || !class_exists('LR_Partner_Card')) {
+                return;
+            }
+            $obj = self::obj($event);
+            // Лише setup-сесії стосуються прив'язки картки
+            if (($obj['mode'] ?? '') !== 'setup') {
+                return;
+            }
+            $sid = (string) ($obj['id'] ?? '');
+            if ($sid === '') {
+                return;
+            }
+            $full = LR_Stripe::retrieve_checkout_session($sid);
+            if (!empty($full)) {
+                LR_Partner_Card::save_from_object($partner_id, $full);
+            }
+        }
+
+        /**
+         * setup_intent.succeeded — підстраховка прив'язки картки.
+         * Обʼєкт несе customer + payment_method (id) + metadata.partner_id.
+         */
+        private static function on_setup_intent_succeeded(array $event, int $partner_id): void
+        {
+            if ($partner_id <= 0 || !class_exists('LR_Partner_Card')) {
+                return;
+            }
+            $obj = self::obj($event);
+            LR_Partner_Card::save_from_object($partner_id, $obj);
         }
 
         /* ============================================================

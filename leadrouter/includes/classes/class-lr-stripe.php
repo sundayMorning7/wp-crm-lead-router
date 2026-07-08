@@ -400,6 +400,152 @@ if (!class_exists('LR_Stripe')) {
         }
 
         /* ============================================================
+         * 3b) HTTP GET — для ретриву об'єктів Stripe (сесія, payment method)
+         * ============================================================ */
+        /**
+         * @return array ['ok'=>bool,'http_code'=>int,'body'=>array,'raw'=>string,'error'=>?string]
+         */
+        public static function http_get(string $endpoint): array
+        {
+            $secret = self::get_secret_key();
+            if ($secret === '') {
+                LR_Billing::log_error(0, 'STRIPE_NO_SECRET', 'error',
+                    'Не задано Stripe secret key у налаштуваннях', ['endpoint' => $endpoint, 'source' => 'stripe']);
+                return ['ok' => false, 'http_code' => 0, 'body' => [], 'raw' => '', 'error' => 'no_secret_key'];
+            }
+
+            $response = wp_remote_get($endpoint, [
+                'headers' => ['Authorization' => 'Bearer ' . $secret],
+                'timeout' => self::HTTP_TIMEOUT,
+            ]);
+
+            if (is_wp_error($response)) {
+                LR_Billing::log_error(0, 'STRIPE_HTTP_ERROR', 'error',
+                    'HTTP GET помилка до Stripe: ' . $response->get_error_message(),
+                    ['endpoint' => $endpoint, 'source' => 'stripe']);
+                return ['ok' => false, 'http_code' => 0, 'body' => [], 'raw' => '', 'error' => $response->get_error_message()];
+            }
+
+            $code = (int) wp_remote_retrieve_response_code($response);
+            $raw  = (string) wp_remote_retrieve_body($response);
+            $body = json_decode($raw, true);
+            if (!is_array($body)) {
+                $body = [];
+            }
+
+            return ['ok' => ($code >= 200 && $code < 300), 'http_code' => $code, 'body' => $body, 'raw' => $raw, 'error' => null];
+        }
+
+        /* ============================================================
+         * 3c) Прив'язка картки: Customer + Checkout(setup) + PaymentMethod
+         * ============================================================ */
+        /**
+         * Створити Stripe Customer для партнера (із metadata.partner_id).
+         * @return array ['id'=>cus_...] | ['error'=>msg]
+         */
+        public static function create_customer(int $partner_id, string $email = ''): array
+        {
+            $params = ['metadata' => ['partner_id' => (string) $partner_id]];
+            if ($email !== '') {
+                $params['email'] = $email;
+            }
+
+            $resp = self::http_request(self::API_BASE . '/customers', $params);
+            $body = is_array($resp['body']) ? $resp['body'] : [];
+
+            if ((int) $resp['http_code'] >= 200 && (int) $resp['http_code'] < 300 && !empty($body['id'])) {
+                return ['id' => (string) $body['id']];
+            }
+
+            $err = $body['error']['message'] ?? ($resp['error'] ?? 'unknown');
+            LR_Billing::log_error($partner_id, 'STRIPE_CUSTOMER_CREATE_FAILED', 'error',
+                'Не вдалося створити Stripe customer: ' . $err, ['source' => 'stripe']);
+            return ['error' => (string) $err];
+        }
+
+        /**
+         * Створити Checkout Session у режимі setup (збереження картки off_session).
+         * metadata[partner_id] і setup_intent_data[metadata][partner_id] — щоб вебхук
+         * (checkout.session.completed / setup_intent.succeeded) розвʼязав партнера.
+         *
+         * @return array ['url'=>..., 'id'=>...] | ['error'=>msg]
+         */
+        public static function create_setup_checkout_session(int $partner_id, string $customer_id, string $success_url, string $cancel_url): array
+        {
+            $params = [
+                'mode'                 => 'setup',
+                'customer'             => $customer_id,
+                'payment_method_types' => ['card'],
+                'success_url'          => $success_url,
+                'cancel_url'           => $cancel_url,
+                'client_reference_id'  => (string) $partner_id,
+                'metadata'             => ['partner_id' => (string) $partner_id],
+                'setup_intent_data'    => ['metadata' => ['partner_id' => (string) $partner_id]],
+            ];
+
+            $resp = self::http_request(self::API_BASE . '/checkout/sessions', $params);
+            $body = is_array($resp['body']) ? $resp['body'] : [];
+
+            if ((int) $resp['http_code'] >= 200 && (int) $resp['http_code'] < 300 && !empty($body['url'])) {
+                return ['url' => (string) $body['url'], 'id' => (string) ($body['id'] ?? '')];
+            }
+
+            $err = $body['error']['message'] ?? ($resp['error'] ?? 'unknown');
+            LR_Billing::log_error($partner_id, 'STRIPE_SETUP_SESSION_FAILED', 'error',
+                'Не вдалося створити Checkout setup session: ' . $err, ['source' => 'stripe']);
+            return ['error' => (string) $err];
+        }
+
+        /**
+         * Ретрив Checkout Session з розгорнутими setup_intent і payment_method
+         * (щоб дістати customer + pm + card.brand/last4 за один запит).
+         * @return array тіло сесії (порожнє при помилці)
+         */
+        public static function retrieve_checkout_session(string $session_id): array
+        {
+            $session_id = trim($session_id);
+            if ($session_id === '') {
+                return [];
+            }
+            $url = self::API_BASE . '/checkout/sessions/' . rawurlencode($session_id)
+                 . '?expand[0]=setup_intent&expand[1]=setup_intent.payment_method';
+            $resp = self::http_get($url);
+            return is_array($resp['body']) ? $resp['body'] : [];
+        }
+
+        /**
+         * Дані картки за payment_method id (для lazy-fetch brand/last4 наявних карток).
+         * @return array|null ['brand'=>..,'last4'=>..] | null
+         */
+        public static function get_payment_method(string $pm_id): ?array
+        {
+            $pm_id = trim($pm_id);
+            if ($pm_id === '') {
+                return null;
+            }
+            $resp = self::http_get(self::API_BASE . '/payment_methods/' . rawurlencode($pm_id));
+            $body = is_array($resp['body']) ? $resp['body'] : [];
+            if (!empty($body['card']) && is_array($body['card'])) {
+                return [
+                    'brand' => (string) ($body['card']['brand'] ?? ''),
+                    'last4' => (string) ($body['card']['last4'] ?? ''),
+                ];
+            }
+            return null;
+        }
+
+        /** Відв'язати payment method від customer (best-effort при перев'язці). */
+        public static function detach_payment_method(string $pm_id): bool
+        {
+            $pm_id = trim($pm_id);
+            if ($pm_id === '') {
+                return false;
+            }
+            $resp = self::http_request(self::API_BASE . '/payment_methods/' . rawurlencode($pm_id) . '/detach', []);
+            return (int) $resp['http_code'] >= 200 && (int) $resp['http_code'] < 300;
+        }
+
+        /* ============================================================
          * 4) Ключі з налаштувань (НЕ хардкод)
          * ============================================================ */
         public static function get_secret_key(): string

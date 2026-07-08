@@ -162,6 +162,30 @@ function leadrouter_create_custom_fields()
             Field::make('text', 'lr_billing_admin_email', __('Admin notification email', 'leadrouter'))
                 ->set_help_text(__('Where to send admin emails (negative balance, etc.). If empty, the site admin email is used.', 'leadrouter')),
         ))
+        // ===== Скарги партнерів на ліди =====
+        ->add_tab(__('Complaints', 'leadrouter'), array(
+            Field::make('text', 'lr_complaints_email', __('Complaints notification email', 'leadrouter'))
+                ->set_help_text(__('Where to send lead-complaint emails. If empty, the billing admin email is used, then the site admin email.', 'leadrouter')),
+            Field::make('complex', 'lr_complaint_topics', __('Complaint topics', 'leadrouter'))
+                ->set_collapsed(false)
+                ->setup_labels(array(
+                    'plural_name'   => __('Topics', 'leadrouter'),
+                    'singular_name' => __('Topic', 'leadrouter'),
+                ))
+                ->add_fields(array(
+                    Field::make('text', 'topic', __('Topic', 'leadrouter'))->set_width(100),
+                ))
+                ->set_default_value(array_map(function ($t) {
+                    return array('topic' => $t);
+                }, LR_Complaints::SEED_TOPICS))
+                ->set_help_text(__('Topics shown to partners in the complaint modal. "Other" is always available in addition to these. If the list is empty, only "Other" is shown.', 'leadrouter')),
+        ))
+        ->add_tab(__('Email: cabinet access', 'leadrouter'), array(
+            Field::make('text', 'lr_email_account_access_subject', __('Subject', 'leadrouter'))
+                ->set_help_text(__('Available placeholders: {login} {password} {cabinet_url} {partner_name} {site_name} {date}', 'leadrouter')),
+            Field::make('rich_text', 'lr_email_account_access_body', __('Body', 'leadrouter'))
+                ->set_help_text(__('Available placeholders: {login} {password} {cabinet_url} {partner_name} {site_name} {date}', 'leadrouter')),
+        ))
         ->add_tab(__('Email: low balance', 'leadrouter'), array(
             Field::make('text', 'lr_email_low_balance_subject', __('Subject', 'leadrouter'))
                 ->set_help_text($lr_email_ph_help),

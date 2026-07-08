@@ -116,7 +116,9 @@ class LR_Billing
             'idempotency_key' => 'lead_spend:' . $partner_id . ':' . $lead_id,
             'reference_type' => 'lead',
             'reference_id'   => (string)$lead_id,
-            'description'    => 'Списання за лід #' . $lead_id,
+            // User-facing опис — англійською; у рендері транзакцій для type='spend'
+            // усе одно генерується лейбл, тож старі укр-записи теж показуються коректно.
+            'description'    => 'Lead charge #' . $lead_id,
         ]);
 
         if (!$tx_id) {

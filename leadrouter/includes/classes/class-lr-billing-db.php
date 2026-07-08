@@ -69,6 +69,8 @@ CREATE TABLE {$table_partner_billing} (
 
   stripe_customer_id VARCHAR(64) NULL,                  -- Stripe customer (cus_...)
   stripe_payment_method_id VARCHAR(64) NULL,            -- збережений спосіб оплати (pm_...)
+  stripe_card_brand VARCHAR(20) NULL,                   -- бренд картки для показу (visa/mastercard...)
+  stripe_card_last4 CHAR(4) NULL,                       -- останні 4 цифри для показу
 
   allow_negative_balance TINYINT(1) NOT NULL DEFAULT 0,    -- дозволити від'ємний баланс (не зупиняти партнера)
   disable_low_balance_email TINYINT(1) NOT NULL DEFAULT 0, -- не надсилати лист про низький баланс
@@ -284,6 +286,9 @@ function leadrouter_billing_db_migrate()
         // Окрема ціна ліда на вихідні (NULL = fallback на weekday lead_price)
         'lead_price_saturday'    => 'ADD COLUMN `lead_price_saturday` DECIMAL(8,4) NULL DEFAULT NULL',
         'lead_price_sunday'      => 'ADD COLUMN `lead_price_sunday` DECIMAL(8,4) NULL DEFAULT NULL',
+        // Бренд/останні цифри картки для показу в кабінеті (картку НЕ зберігаємо)
+        'stripe_card_brand'      => 'ADD COLUMN `stripe_card_brand` VARCHAR(20) NULL',
+        'stripe_card_last4'      => 'ADD COLUMN `stripe_card_last4` CHAR(4) NULL',
     ];
 
     foreach ($add_columns as $col => $ddl) {
