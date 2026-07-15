@@ -93,7 +93,13 @@ if (!class_exists('LR_Partner_User_Link')) {
                 // Якщо доступна імперсонація (manage_options) — кнопка одразу логінить
                 // адміна під цього партнера (LR_Partner_Impersonate). Інакше — фолбек
                 // на звичайне посилання на кабінет (без логіну).
-                $open_url = (class_exists('LR_Partner_Impersonate') && current_user_can('manage_options'))
+                // Роль leadrouter_manager має manage_options лише в контексті LeadRouter,
+                // але екшен імперсонації їй не дозволений — тож віддаємо їй фолбек, а не 403.
+                $can_impersonate = class_exists('LR_Partner_Impersonate')
+                    && current_user_can('manage_options')
+                    && !(class_exists('LeadRouter_Restricted_Access') && LeadRouter_Restricted_Access::is_manager());
+
+                $open_url = $can_impersonate
                     ? LR_Partner_Impersonate::view_url($partner_id)
                     : LR_Partner_Auth::cabinet_url();
 

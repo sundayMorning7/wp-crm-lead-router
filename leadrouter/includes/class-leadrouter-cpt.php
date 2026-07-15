@@ -412,9 +412,8 @@ function leadrouter_create_custom_fields()
             Field::make('html', 'leadrouter_partner_sun_label_end')->set_html('')->set_width(30),
         ));
 
-    // ===== Білінг — вкладки ховаємо для обмеженої ролі leadrouter_manager =====
-    if (!(class_exists('LeadRouter_Restricted_Access') && LeadRouter_Restricted_Access::is_manager())) {
-        $lr_partner_container
+    // ===== Білінг (вбудована сторінка білінгу партнера) =====
+    $lr_partner_container
         ->add_tab(__('Billing', 'leadrouter'), array(
             Field::make('html', 'leadrouter_partner_billing_main')
                 ->set_html(function () {
@@ -435,7 +434,6 @@ function leadrouter_create_custom_fields()
                     return $pid ? LR_Partner_Billing_Page::tab_billing_history_html((int)$pid) : '';
                 }),
         ));
-    }
 
     $lr_partner_container
         ->add_tab(__('Тех інфо', 'leadrouter'), array(

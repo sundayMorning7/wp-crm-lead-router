@@ -27,12 +27,20 @@ class LeadRouter_Restricted_Access
     /** Slug ролі працівника */
     const ROLE = 'leadrouter_manager';
 
-    /** Дозволені сторінки admin.php?page=... */
+    /**
+     * Дозволені сторінки admin.php?page=...
+     *
+     * НАВМИСНО закриті (не додавати):
+     *  - 'leadrouter-settings'        — там Stripe secret key і webhook secret
+     *                                   (доступ до платіжного акаунта поза WordPress);
+     *  - 'leadrouter-billing-report'  — місячний звіт (Ad Spend / Revenue бізнесу).
+     */
     private static $pages = [
         'leadrouter',
         'leadrouter-leads',
         'leadrouter-logviewer',
         'leadrouter-complaints',
+        'leadrouter-billing',   // LeadRouter → Billing (дашборд)
     ];
 
     /** Дозволені CPT (Групи/Партнери) */
@@ -42,10 +50,18 @@ class LeadRouter_Restricted_Access
     ];
 
     /**
-     * Дозволені AJAX / admin-post екшени — суто робочі дії 6 сторінок.
-     * НАВМИСНО виключені фінансові/акаунтні дії (білінг: списання/поповнення/
-     * налаштування, генерація пароля кабінету партнера) — їх немає у списку
-     * дозволених сторінок. За потреби додати сюди відповідні екшени.
+     * Дозволені AJAX / admin-post екшени.
+     *
+     * ⚠️ Це ЄДИНИЙ замок для AJAX/admin-post: редіректу там немає, а manage_options
+     * видається на весь запит, якщо екшен є в цьому списку. Тобто кожен рядок тут —
+     * свідоме розширення прав.
+     *
+     * Білінг ВІДКРИТО (свідоме рішення): менеджер може списувати/поповнювати баланс,
+     * міняти тарифи й Stripe-ID партнера, реактивувати партнера.
+     *
+     * НАВМИСНО закриті:
+     *  - 'lr_billing_report_save_adstats' / 'lr_billing_report_export_csv' — Billing Report;
+     *  - 'lr_admin_view_partner' / 'lr_admin_return_from_partner' — вхід під партнера.
      */
     private static $actions = [
         // Ліди
@@ -61,6 +77,20 @@ class LeadRouter_Restricted_Access
         'leadrouter_toggle_group_active', // admin_post
         // Тестова відправка ліда партнеру (колонка у списках)
         'lr_send_test_lead',        // wp_ajax
+        // ── Білінг: дашборд LeadRouter → Billing ──
+        'lr_billing_export_csv',    // admin_post — CSV транзакцій
+        // ── Білінг: таби Billing / Billing history на екрані партнера (wp_ajax) ──
+        'lr_load_billing_history',  // read-only пагінація історії
+        'lr_resolve_billing_error', // + Errors-таб дашборда використовує цей самий екшен
+        'lr_manual_debit',          // ФІНАНСОВЕ: ручне списання з балансу
+        'lr_manual_topup',          // ФІНАНСОВЕ: ручне поповнення балансу
+        'lr_save_billing_settings', // ФІНАНСОВЕ: тарифи, min balance, auto-charge, Stripe ID
+        'lr_reactivate_partner',    // зняття деактивації по білінгу
+        // ── Доступ до кабінету партнера ──
+        // Скидання/генерація пароля кабінету. Безпечно: екшен приймає лише partner_id
+        // (валідує post_type = leadrouter_partner), user резолвиться за зв'язком партнера,
+        // пароль випадковий і надсилається партнеру ЛИСТОМ — в адмінці не показується.
+        'lr_partner_gen_password',  // wp_ajax
     ];
 
     /**

@@ -757,7 +757,7 @@ jQuery(function ($) {
 
         $('.md_checked_count').remove();
         if (count > 0) {
-            $('<div class="md_checked_count">Checked: <b class="mod-green">' + count + '</b></div>').insertAfter(".wrap .count_title_buy_status");
+            $('<div class="md_checked_count">Checked: <b class="mod-green">' + count + '</b></div>').insertAfter(".wrap .lr-checked-anchor");
         }
     });
 

@@ -179,6 +179,46 @@ class LeadRouter_Admin
                 'deleteLeadsCascadeAction' => 'leadrouter_delete_leads_cascade',
             ]);
 
+            // Панель статистики лідів (згортна) — Sent today (EST) + Status count
+            wp_add_inline_style('md_admin_css3', '
+                .lr-leads-stats { margin: 10px 0 15px; }
+                .lr-leads-stats.is-collapsed { display: none; }
+                .lr-leads-stats__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; align-items: start; }
+                .lr-leads-stats__card { background: #fff; border: 1px solid #ccd0d4; border-radius: 4px; padding: 12px; }
+                .lr-leads-stats__card h3 { margin: 0 0 8px; font-size: 13px; color: #1d2327; }
+                .lr-leads-stats__card table { border: 0; }
+                .lr-leads-stats .lr-stats-num { text-align: right; font-variant-numeric: tabular-nums; width: 90px; }
+                .lr-leads-stats tfoot th { border-top: 1px solid #dcdcde; font-weight: 600; }
+                /* .mod-green у md_admin.css привʼязаний до старої розмітки шапки — дублюємо для панелі */
+                .lr-leads-stats .mod-green { color: #0b8a31; }
+                .lr-leads-stats .mod-error { color: #8f0202; }
+                .js-lr-stats-toggle { cursor: pointer; }
+                .lr-checked-anchor { display: inline-block; }
+            ');
+
+            wp_add_inline_script('jquery', '
+                jQuery(document).ready(function($) {
+                    var $panel  = $("#lr-leads-stats");
+                    var $btn    = $(".js-lr-stats-toggle");
+                    if (!$panel.length || !$btn.length) { return; }
+
+                    function apply(collapsed) {
+                        $panel.toggleClass("is-collapsed", collapsed);
+                        $btn.attr("aria-expanded", collapsed ? "false" : "true");
+                        $btn.find(".lr-stats-caret").text(collapsed ? "▶" : "▼");
+                    }
+
+                    apply(localStorage.getItem("lr_leads_stats_collapsed") === "true");
+
+                    $btn.on("click", function(e) {
+                        e.preventDefault();
+                        var collapsed = !$panel.hasClass("is-collapsed");
+                        apply(collapsed);
+                        localStorage.setItem("lr_leads_stats_collapsed", collapsed);
+                    });
+                });
+            ');
+
             wp_add_inline_style('md_admin_css3', '
                 .lr-utm-stats-panel { background: #fff; border: 1px solid #ccd0d4; padding: 15px; margin: 10px 0 15px; border-radius: 4px; }
                 .lr-utm-stats-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin-bottom: 15px; }
@@ -382,7 +422,10 @@ class LeadRouter_Admin
         $sent_lead_by_group = self::count_sent_leads_today_by_groups();
 
 
-        $status_html = '';
+        // ── Рядки таблиці «Status count (all time)» ──
+        // Статус 'sent' навмисно не показуємо (як і було раніше).
+        $status_rows_html = '';
+        $status_total     = 0;
         foreach ($status_lead_count as $status => $count) {
 
             $filtered = ['sent'];
@@ -390,10 +433,18 @@ class LeadRouter_Admin
                 continue;
             }
 
+            $status_total += (int) $count;
+
             $status_tmp = $status !== ''
                 ? mb_strtoupper(mb_substr($status, 0, 1)) . mb_substr($status, 1)
-                : '';
-            $status_html .= $status_tmp . ': <b class="lead-status-count-' . $status . '">' . $count . '</b>';
+                : '—';
+
+            $status_rows_html .= '<tr><td>' . esc_html($status_tmp) . '</td>'
+                . '<td class="lr-stats-num"><b class="lead-status-count-' . esc_attr($status) . '">'
+                . (int) $count . '</b></td></tr>';
+        }
+        if ($status_rows_html === '') {
+            $status_rows_html = '<tr><td colspan="2"><em>' . esc_html__('Немає даних', 'leadrouter') . '</em></td></tr>';
         }
 
 
@@ -417,11 +468,18 @@ class LeadRouter_Admin
             $partners_options_html .= '<option value="' . $partner['ID'] . '">' . $partner['post_title'] . '</option>';
         }
 
-        $html_today_sent = '';
+        // ── Рядки таблиці «Sent today (EST)» по партнерах ──
+        $sent_rows_html = '';
+        $sent_total     = 0;
         foreach ($sent_lead_by_group as $key => $item) {
-            $html_today_sent .= get_the_title($key) . ': <b class="mod-green">' . $item . '</b> ';
+            $sent_total += (int) $item;
+            $pname = get_the_title($key) ?: ('#' . (int) $key);
+            $sent_rows_html .= '<tr><td>' . esc_html($pname) . '</td>'
+                . '<td class="lr-stats-num"><b class="mod-green">' . (int) $item . '</b></td></tr>';
         }
-
+        if ($sent_rows_html === '') {
+            $sent_rows_html = '<tr><td colspan="2"><em>' . esc_html__('Сьогодні ще нічого не відправлено', 'leadrouter') . '</em></td></tr>';
+        }
 
         echo '<div class="wrap">
             <div class="md_page_header">
@@ -429,12 +487,49 @@ class LeadRouter_Admin
             <h1>' . esc_html__('Leads', 'leadrouter') . '</h1>
             <button style="display: none" class="js-show-today-limit-panel page-title-action">Show today limits</button>
             <button class="js-show-report-panel page-title-action">Show report panel</button>
-            <div class="count_title_est_today_sent">' . $html_today_sent . '</div>
-            <div class="count_title_buy_status"><b>Status count:</b>' . $status_html . '</div>
-            
+            <button type="button" class="page-title-action js-lr-stats-toggle" aria-expanded="true" aria-controls="lr-leads-stats">'
+            . '📊 ' . esc_html__('Stats', 'leadrouter') . ' <span class="lr-stats-caret">▼</span></button>
+            <div class="lr-checked-anchor"></div>
             </div>
             <hr />
             </div>';
+
+        // ── Згортна панель зі статистикою (стан памʼятається в localStorage) ──
+        echo '<div class="lr-leads-stats" id="lr-leads-stats">
+            <div class="lr-leads-stats__grid">
+
+                <div class="lr-leads-stats__card">
+                    <h3>' . esc_html__('Sent today (EST)', 'leadrouter') . '</h3>
+                    <table class="widefat striped">
+                        <thead><tr>
+                            <th>' . esc_html__('Партнер', 'leadrouter') . '</th>
+                            <th class="lr-stats-num">' . esc_html__('Лідів', 'leadrouter') . '</th>
+                        </tr></thead>
+                        <tbody>' . $sent_rows_html . '</tbody>
+                        <tfoot><tr>
+                            <th>' . esc_html__('Разом', 'leadrouter') . '</th>
+                            <th class="lr-stats-num">' . (int) $sent_total . '</th>
+                        </tr></tfoot>
+                    </table>
+                </div>
+
+                <div class="lr-leads-stats__card">
+                    <h3>' . esc_html__('Status count (all time)', 'leadrouter') . '</h3>
+                    <table class="widefat striped">
+                        <thead><tr>
+                            <th>' . esc_html__('Статус', 'leadrouter') . '</th>
+                            <th class="lr-stats-num">' . esc_html__('К-сть', 'leadrouter') . '</th>
+                        </tr></thead>
+                        <tbody>' . $status_rows_html . '</tbody>
+                        <tfoot><tr>
+                            <th>' . esc_html__('Разом', 'leadrouter') . '</th>
+                            <th class="lr-stats-num">' . (int) $status_total . '</th>
+                        </tr></tfoot>
+                    </table>
+                </div>
+
+            </div>
+        </div>';
 
         echo '<div class="md-report-panel"
              style="display:none; padding: 10px 15px; margin-bottom: 20px;">
@@ -553,14 +648,24 @@ class LeadRouter_Admin
         return $out;
     }
 
+    /**
+     * Таймзона плагіна. Диспетчер, денні квоти груп, ліміти партнерів і скидання eff
+     * працюють у America/New_York — лічильники «за сьогодні» мають рахувати ту саму добу,
+     * інакше цифри в адмінці не збігаються з реальними лімітами.
+     */
+    protected static function est_tz(): DateTimeZone
+    {
+        return new DateTimeZone('America/New_York');
+    }
+
     protected static function count_sent_leads_today(): int
     {
         global $wpdb;
 
         $table = $wpdb->prefix . 'leadrouter_leads';
 
-        // Межі сьогоднішньої доби в таймзоні WP
-        $tz = wp_timezone();
+        // Межі сьогоднішньої доби в таймзоні плагіна (EST/EDT)
+        $tz = self::est_tz();
         $start = new DateTime('today', $tz);
         $end = (clone $start)->modify('+1 day');
 
@@ -586,8 +691,8 @@ class LeadRouter_Admin
 
         $send_table = $wpdb->prefix . 'leadrouter_send_log';
 
-        // межі сьогоднішнього дня
-        $tz = wp_timezone();
+        // межі сьогоднішнього дня в таймзоні плагіна (EST/EDT)
+        $tz = self::est_tz();
 
         $start = new DateTime('today', $tz);
         $end = (clone $start)->modify('+1 day');
@@ -637,8 +742,8 @@ class LeadRouter_Admin
 
         $send_table = $wpdb->prefix . 'leadrouter_send_log';
 
-        // межі сьогоднішнього дня в WP timezone
-        $tz = wp_timezone();
+        // межі сьогоднішнього дня в таймзоні плагіна (EST/EDT)
+        $tz = self::est_tz();
         $start = new DateTime('today', $tz);
         $end = (clone $start)->modify('+1 day');
 
