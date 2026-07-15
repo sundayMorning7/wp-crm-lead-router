@@ -72,6 +72,7 @@ class LeadRouter_Admin
                     'capscrm' => lr_partner_capscrm_default_map(),
                     'onespacecrm' => lr_partner_onespacecrm_default_map(),
                     'mile_autotransport' => lr_partner_mile_autotransport_default_map(),
+                    'carlink' => lr_partner_carlink_default_map(),
                 ],
                 'presetSettings' => [
                     'bats' => [
@@ -115,6 +116,13 @@ class LeadRouter_Admin
                         'api_key' => '',
                         'api_key_header' => 'X-API-Key',
                         'require_ok_json' => true,
+                    ],
+                    'carlink' => [
+                        'endpoint' => 'https://api-nt.carlink.pro/api/v1/Leads/ProvideLead',
+                        'auth_variant' => 'none',
+                        'api_key' => '',
+                        'api_key_header' => '',
+                        'require_ok_json' => false,
                     ],
                 ],
                 'i18n' => [

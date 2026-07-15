@@ -47,9 +47,11 @@ if (!class_exists('LeadRouter_Transform')) {
                 case 'map_running':    return self::mapRunning($value);
                 case 'inop_binary':    return self::inopBinary($value);
                 case 'inop_binary_reverse': return self::inopBinaryReverse($value);
+                case 'inop_binary_to_bool': return self::inopBinaryToBool($value);
 
                 // 🚚 тип транспорта Open/Closed
                 case 'map_transport_type': return self::mapTransportType($value);
+                case 'map_transport_type_reverse': return self::mapTransportTypeReverse($value);
             }
         }
 
@@ -64,6 +66,13 @@ if (!class_exists('LeadRouter_Transform')) {
             $v = mb_strtolower(trim((string)$value));
             if ($v === '1' || $v === 1) return 'Open';
             if ($v === '0' || $v === 0) return 'Closed';
+            return null;
+        }
+
+        protected static function mapTransportTypeReverse($value): ?string {
+            $v = mb_strtolower(trim((string)$value));
+            if ($v === '1' || $v === 1) return 'Closed';
+            if ($v === '0' || $v === 0) return 'Open';
             return null;
         }
                 
@@ -147,8 +156,15 @@ if (!class_exists('LeadRouter_Transform')) {
         /** inop_binary_reverse: Running → 1, інше → 0 */
         protected static function inopBinaryReverse(?string $value): ?string {
             $v = mb_strtolower(trim((string)$value));
-            if ($v === '1') return '0';
+            if ($v === 'nonrunning' || $v === 'non-running' || $v === '1') return '0';
             return '1';
+        }
+
+        /** inop_binary_to_bool: Running → false, інше → 1 */
+        protected static function inopBinaryToBool(?string $value): ?string {
+            $v = mb_strtolower(trim((string)$value));
+            if ($v === 'running' || $v === '0') return false;
+            return true;
         }
 
         /** split_name_fn / split_name_ln */

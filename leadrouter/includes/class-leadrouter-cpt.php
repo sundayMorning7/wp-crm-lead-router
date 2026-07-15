@@ -603,6 +603,7 @@ function leadrouter_create_custom_fields()
                 <option value="bats">BATS</option>
                 <option value="msgplane">MsgPlane</option>
                 <option value="imove360">iMove360</option>
+                <option value="carlink">CarlinkCRM</option>
                 <option value="capscrm">CapsCRM</option>
                 <option value="onespacecrm">OnespaceCRM</option>
                 <option value="mile_autotransport">Mile-Autotransport</option>
@@ -810,5 +811,44 @@ function lr_partner_mile_autotransport_default_map(): array {
         ['our_key' => 'destination_postal_code',     'their_key' => 'destination_postal_code',     'transform' => 'digits',          'default_value' => ''],
         ['our_key' => 'origin_country',              'their_key' => 'origin_country',              'transform' => 'none',            'default_value' => 'USA'],
         ['our_key' => 'destination_country',         'their_key' => 'destination_country',         'transform' => 'none',            'default_value' => 'USA'],
+    ];
+}
+
+function lr_partner_carlink_default_map(): array {
+    return [
+        // Auth / provider key in body
+        ['our_key' => 'AuthKey',                    'their_key' => 'lpKey',               'transform' => 'none',      'default_value' => 'Your lead provider key'],
+
+        // Customer
+        ['our_key' => 'first_name',                 'their_key' => 'firstName',           'transform' => 'title',     'default_value' => ''],
+        ['our_key' => 'last_name',                  'their_key' => 'lastName',            'transform' => 'title',     'default_value' => ''],
+        ['our_key' => 'email',                      'their_key' => 'email',               'transform' => 'lower',     'default_value' => ''],
+        ['our_key' => 'phone',                      'their_key' => 'phone',               'transform' => 'digits',    'default_value' => ''],
+        // ['our_key' => 'phone_other',                'their_key' => 'PhoneOther',          'transform' => 'digits',    'default_value' => ''],
+        // ['our_key' => 'billing_address',            'their_key' => 'BillingAddress',      'transform' => 'none',      'default_value' => ''],
+
+        // Origin
+        ['our_key' => 'origin_city',                'their_key' => 'originCity',          'transform' => 'title',     'default_value' => ''],
+        ['our_key' => 'origin_state',               'their_key' => 'originState',         'transform' => 'upper',     'default_value' => ''],
+        ['our_key' => 'origin_postal_code',         'their_key' => 'originZip',           'transform' => 'digits',    'default_value' => ''],
+        ['our_key' => 'origin_country',             'their_key' => 'originCountry',       'transform' => 'none',      'default_value' => 'USA'],
+
+        // Destination
+        ['our_key' => 'destination_city',           'their_key' => 'destinationCity',     'transform' => 'title',     'default_value' => ''],
+        ['our_key' => 'destination_state',          'their_key' => 'destinationState',    'transform' => 'upper',     'default_value' => ''],
+        ['our_key' => 'destination_postal_code',    'their_key' => 'destinationZip',      'transform' => 'digits',    'default_value' => ''],
+        ['our_key' => 'destination_country',        'their_key' => 'destinationCountry',  'transform' => 'none',      'default_value' => 'USA'],
+
+        // Shipping details
+        ['our_key' => 'ship_date',                  'their_key' => 'estShipDate',         'transform' => 'date_Ymd',  'default_value' => ''],
+        ['our_key' => 'transport_type',             'their_key' => 'shipVia',             'transform' => 'map_transport_type_reverse', 'default_value' => '0'],
+        ['our_key' => 'comment_from_shipper',       'their_key' => 'noteFromShipper',     'transform' => 'none',      'default_value' => ''],
+
+        // Vehicle (first vehicle fields)
+        ['our_key' => 'Vehicles.0.vehicle_model_year','their_key' => 'Vehicles.0.year',    'transform' => 'int',       'default_value' => ''],
+        ['our_key' => 'Vehicles.0.vehicle_make',     'their_key' => 'Vehicles.0.make',    'transform' => 'title',     'default_value' => ''],
+        ['our_key' => 'Vehicles.0.vehicle_model',    'their_key' => 'Vehicles.0.model',   'transform' => 'title',     'default_value' => ''],
+        ['our_key' => 'Vehicles.0.vehicle_type',     'their_key' => 'Vehicles.0.type',    'transform' => 'title',     'default_value' => 'Car'],
+        ['our_key' => 'Vehicles.0.vehicle_inop',     'their_key' => 'Vehicles.0.isInoperable','transform' => 'inop_binary_to_bool', 'default_value' => false],
     ];
 }
