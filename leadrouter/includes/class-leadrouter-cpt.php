@@ -595,6 +595,7 @@ function leadrouter_create_custom_fields()
                         'inop_binary_reverse' => 'condition→vehicle_inop (Running→1, інше→0)', // ⬅️ нове
                         'phone_us_dashed'=> 'phone → 111-111-1111',    // ⬅️ нове
                         'map_transport_type' => 'transport_type: 1 → Open, 0 → Closed', // ⬅️ нове
+                        'map_transport_type_reverse' => 'transport_type: 0 → Open, 1 → Closed', // ⬅️ нове
                     ])->set_default_value('none'),
                     Field::make('text', 'default_value', 'Default value')->set_width(25)
                         ->set_help_text('Підставляється, якщо значення порожнє'),

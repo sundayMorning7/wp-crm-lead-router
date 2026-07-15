@@ -69,6 +69,13 @@ if (!class_exists('LeadRouter_Transform')) {
             return null;
         }
 
+        /**
+         * map_transport_type_reverse: Преобразует значения типа транспорта в Closed/Open.
+         * Поддерживает варианты: 1, '1', 0, '0'.
+         * Если значение не распознано — возвращает null.
+         *
+         * Пример использования: для поля transport_type, где в базе может быть 1/0 или строка.
+         */
         protected static function mapTransportTypeReverse($value): ?string {
             $v = mb_strtolower(trim((string)$value));
             if ($v === '1' || $v === 1) return 'Closed';
