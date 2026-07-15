@@ -593,9 +593,10 @@ function leadrouter_create_custom_fields()
                         'map_running'    => 'map:Running→operable, NonRunning→inoperable',
                         'inop_binary'    => 'condition→vehicle_inop (Running→0, інше→1)',
                         'inop_binary_reverse' => 'condition→vehicle_inop (Running→1, інше→0)', // ⬅️ нове
+                        'inop_binary_to_bool' => 'condition→vehicle_inop (Running→false, інше→true)', // ⬅️ нове
                         'phone_us_dashed'=> 'phone → 111-111-1111',    // ⬅️ нове
                         'map_transport_type' => 'transport_type: 1 → Open, 0 → Closed', // ⬅️ нове
-                        'map_transport_type_reverse' => 'transport_type: 0 → Open, 1 → Closed', // ⬅️ нове
+                        'map_transport_type_reverse' => 'transport_type: 0 → 1, 1 → 0' // ⬅️ нове
                     ])->set_default_value('none'),
                     Field::make('text', 'default_value', 'Default value')->set_width(25)
                         ->set_help_text('Підставляється, якщо значення порожнє'),
@@ -856,6 +857,6 @@ function lr_partner_carlink_default_map(): array {
         ['our_key' => 'Vehicles.0.vehicle_make',     'their_key' => 'Vehicles.0.make',    'transform' => 'title',     'default_value' => ''],
         ['our_key' => 'Vehicles.0.vehicle_model',    'their_key' => 'Vehicles.0.model',   'transform' => 'title',     'default_value' => ''],
         ['our_key' => 'Vehicles.0.vehicle_type',     'their_key' => 'Vehicles.0.type',    'transform' => 'title',     'default_value' => 'Car'],
-        ['our_key' => 'Vehicles.0.vehicle_inop',     'their_key' => 'Vehicles.0.isInoperable','transform' => 'inop_binary_to_bool', 'default_value' => false],
+        ['our_key' => 'Vehicles.0.vehicle_inop',     'their_key' => 'Vehicles.0.isInoperable','transform' => 'inop_binary_to_bool', 'default_value' => ''],
     ];
 }
