@@ -534,7 +534,9 @@ function leadrouter_create_custom_fields()
         Напр.: <code>{first_name}</code>, <code>{last_name}</code>, <code>{phone}</code>, <code>{email}</code>,<br/>
         <code>{origin_city}</code>, <code>{origin_state}</code>, <code>{destination_city}</code>, <code>{destination_state}</code>,<br/>
         <code>{vehicle_year}</code>, <code>{vehicle_brand}</code>, <code>{vehicle_model}</code>,<br/>
-        а також вкладені: <code>{Vehicles.0.vehicle_model_year}</code>, <code>{Vehicles.0.vehicle_make}</code> і т.п.
+        а також вкладені: <code>{Vehicles.0.vehicle_model_year}</code>, <code>{Vehicles.0.vehicle_make}</code> і т.п.<br/><br/>
+        Доступні inline-трансформації: <code>{phone|digits}</code>, <code>{ship_date|date_mdy_dash}</code>, <code>{first_name|title}</code>.<br/>
+        Старий формат <code>{field}</code> повністю підтримується.
     '),
                     Field::make('textarea', 'email_text', 'Текст')
                         ->set_width(100)
@@ -545,7 +547,9 @@ function leadrouter_create_custom_fields()
         <code>{first_name}</code>, <code>{last_name}</code>, <code>{email}</code>, <code>{phone}</code>,<br/>
         <code>{origin_city}</code>, <code>{origin_state}</code>, <code>{destination_city}</code>, <code>{destination_state}</code>,<br/>
         <code>{vehicle_year}</code>, <code>{vehicle_brand}</code>, <code>{vehicle_model}</code>, <code>{vehicle_condition}</code>,<br/>
-        <code>{Vehicles.0.vehicle_model_year}</code>, <code>{Vehicles.0.vehicle_make}</code>, <code>{Vehicles.0.vehicle_model}</code>, <code>{Vehicles.0.vehicle_inop}</code>.<br/><br/>
+        <code>{Vehicles.0.vehicle_model_year}</code>, <code>{Vehicles.0.vehicle_make}</code>, <code>{Vehicles.0.vehicle_model}</code>, <code>{Vehicles.0.vehicle_inop}</code>.<br/>
+        Також доступні inline-трансформації: <code>{phone|digits}</code>, <code>{ship_date|date_mdy_dash}</code>, <code>{first_name|upper}</code>, <code>{transport_type|map_transport_type}</code>.<br/>
+        Старий формат <code>{field}</code> повністю підтримується.<br/><br/>
         Наприклад:<br/>
         <code>
         New lead from {first_name} {last_name}<br/>
@@ -592,6 +596,7 @@ function leadrouter_create_custom_fields()
                         'inop_binary'    => 'condition→vehicle_inop (Running→0, інше→1)',
                         'inop_binary_reverse' => 'condition→vehicle_inop (Running→1, інше→0)', // ⬅️ нове
                         'inop_binary_to_bool' => 'condition→vehicle_inop (Running→false, інше→true)', // ⬅️ нове
+                        'inop_binary_to_bool_reverse' => 'condition→vehicle_inop (Running→true, інше→false)', // ⬅️ нове
                         'phone_us_dashed'=> 'phone → 111-111-1111',    // ⬅️ нове
                         'map_transport_type' => 'transport_type: 1 → Open, 0 → Closed', // ⬅️ нове
                         'map_transport_type_reverse' => 'transport_type: 0 → 1, 1 → 0' // ⬅️ нове

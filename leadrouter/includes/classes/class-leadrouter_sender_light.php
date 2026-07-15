@@ -233,6 +233,12 @@ if (!class_exists('LeadRouter_Sender_Light')) {
                 ];
                 $resp   = $email['resp'] ?? [];
 
+                if (!empty($resp['warnings']) && is_array($resp['warnings'])) {
+                    $debug['warnings'] = array_values($resp['warnings']);
+                } else {
+                    $debug['warnings'] = [];
+                }
+
                 // Псевдо-request для логів
                 $email_to = (string) get_post_meta($partner_post_id, 'leadrouter_partner_email', true);
 
@@ -738,16 +744,65 @@ if (!class_exists('LeadRouter_Sender_Light')) {
             // 🔍 Будуємо плоску карту значень для шаблонів
             $flat = self::flatten_for_templates($our_payload);
 
-            $render = function (string $tpl) use ($flat): string {
-                return preg_replace_callback('/\{([a-zA-Z0-9_.]+)\}/', function ($m) use ($flat) {
-                    $key = $m[1];
-                    return array_key_exists($key, $flat) ? (string) $flat[$key] : '';
+            $warnings = [];
+            $add_warning = static function (string $warning) use (&$warnings): void {
+                $warnings[$warning] = $warning;
+            };
+
+            $render = function (string $tpl) use ($flat, $add_warning): string {
+                return preg_replace_callback('/\{([a-zA-Z0-9_.]+)(?:\|([a-zA-Z0-9_]+))?\}/', function ($m) use ($flat, $add_warning) {
+                    $key = (string)($m[1] ?? '');
+                    $transform = isset($m[2]) ? trim((string)$m[2]) : '';
+
+                    if ($key === '') {
+                        $add_warning('placeholder_invalid');
+                        return '';
+                    }
+
+                    if (!array_key_exists($key, $flat)) {
+                        $add_warning('placeholder_missing:' . $key);
+                        return '';
+                    }
+
+                    $value = $flat[$key];
+                    if ($value === null || $value === '') {
+                        return '';
+                    }
+
+                    if ($transform !== '') {
+                        if (!self::is_supported_transform($transform)) {
+                            $add_warning('transform_unknown:' . $transform . '@' . $key);
+                            return '';
+                        }
+
+                        if (!class_exists('LeadRouter_Transform') || !method_exists('LeadRouter_Transform', 'apply')) {
+                            $add_warning('transform_unavailable:' . $transform . '@' . $key);
+                            return '';
+                        }
+
+                        try {
+                            $value = LeadRouter_Transform::apply($value, $transform);
+                        } catch (\Throwable $e) {
+                            $add_warning('transform_error:' . $transform . '@' . $key);
+                            return '';
+                        }
+
+                        if ($value === null || $value === '') {
+                            $add_warning('transform_empty:' . $transform . '@' . $key);
+                            return '';
+                        }
+                    }
+
+                    if (is_bool($value)) {
+                        return $value ? 'true' : 'false';
+                    }
+
+                    return (string)$value;
                 }, $tpl);
             };
 
             $subject = $render($subject_tpl);
             $body    = $render($body_tpl);
-
 
             // Кілька email-адрес через кому/крапку з комою
             $to_list = array_filter(array_map('trim', preg_split('/[;,]+/', $to_raw)));
@@ -790,6 +845,7 @@ if (!class_exists('LeadRouter_Sender_Light')) {
                 'subject'      => $subject,
                 'body_excerpt' => mb_substr($body, 0, 500),
                 'latency_ms'   => $latency,
+                'warnings'     => array_values($warnings),
             ];
 
 
@@ -846,6 +902,37 @@ if (!class_exists('LeadRouter_Sender_Light')) {
             }
 
             return $out;
+        }
+
+        /**
+         * Список inline-трансформацій, дозволених у email-плейсхолдерах {key|transform}.
+         */
+        protected static function is_supported_transform(string $transform): bool
+        {
+            static $allowed = [
+                'none',
+                'lower',
+                'upper',
+                'title',
+                'digits',
+                'int',
+                'float2',
+                'date_Ymd',
+                'date_mdy',
+                'date_mdy_dash',
+                'phone_us_dashed',
+                'split_name_fn',
+                'split_name_ln',
+                'map_running',
+                'inop_binary',
+                'inop_binary_reverse',
+                'inop_binary_to_bool',
+                'inop_binary_to_bool_reverse',
+                'map_transport_type',
+                'map_transport_type_reverse',
+            ];
+
+            return in_array($transform, $allowed, true);
         }
 
 
