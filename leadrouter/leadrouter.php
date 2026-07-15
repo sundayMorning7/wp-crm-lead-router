@@ -70,6 +70,9 @@ require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-partner-imperson
 // Скарги партнерів на ліди (core: submit/валідація/лист + AJAX-ендпоінт)
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-complaints.php';
 
+// Обмежений доступ працівника (роль leadrouter_manager: тільки сторінки LeadRouter)
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-restricted-access.php';
+
 // WP-CLI команди (leadrouter simulate-*, billing-test-setup). Файл сам захищений WP_CLI-гардом.
 if (defined('WP_CLI') && WP_CLI) {
     require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-cli.php';
@@ -105,6 +108,9 @@ if (is_admin()) {
 
     // Адмін-інтерфейс заявок-скарг (LeadRouter → Complaints)
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/page-complaints.php';
+
+    // Рядок з поточним часом плагіна (America/New_York) на всіх сторінках LeadRouter
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/lr-est-clock.php';
 
     LeadRouter_LogViewer::init();
 
@@ -379,6 +385,9 @@ register_activation_hook(__FILE__, function () {
     leadrouter_register_cpts();
     if (class_exists('LR_Partner_Auth')) {
         LR_Partner_Auth::install_role();
+    }
+    if (class_exists('LeadRouter_Restricted_Access')) {
+        LeadRouter_Restricted_Access::ensure_role();
     }
     if (class_exists('LR_Partner_Portal')) {
         LR_Partner_Portal::ensure_cabinet_page();

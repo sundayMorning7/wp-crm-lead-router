@@ -177,18 +177,47 @@ class LeadRouter_Dispatcher_Eff
         $isExcludedState = in_array($from_state, $excluded, true) || in_array($to_state, $excluded, true);
 
         // КРОК 6. Оновлення eff — тільки якщо НЕ AK/HI
+        // Smooth Weighted Round Robin: усі eligible-групи накопичують eff += weight_today
+        // (це вже обчислений eff_tmp), і лише вибрана додатково платить -sumW.
+        // Раніше eff зберігався тільки для picked, через що розподіл був непропорційним
+        // при попиті нижче сумарної квоти (малі групи перевантажувались, великі недобирали).
         if (!$isExcludedState) {
-            $newEff = (int)$picked['eff_tmp'] - (int)$sumW;
-            $wpdb->update(
-                $table_groups,
-                [
-                    'eff'        => $newEff,
-                    'updated_at' => $assigned_at,
-                ],
-                ['id' => (int)$picked['id']],
-                ['%d','%s'],
-                ['%d']
-            );
+            $picked_id          = (int)$picked['id'];
+            $picked_in_eligible = false;
+
+            foreach ($eligible as $g) {
+                $gid = (int)$g['id'];
+                if ($gid === $picked_id) {
+                    $picked_in_eligible = true;
+                }
+                $newEff = (int)$g['eff_tmp'] - ($gid === $picked_id ? (int)$sumW : 0);
+                $wpdb->update(
+                    $table_groups,
+                    [
+                        'eff'        => $newEff,
+                        'updated_at' => $assigned_at,
+                    ],
+                    ['id' => $gid],
+                    ['%d','%s'],
+                    ['%d']
+                );
+            }
+
+            // Fallback (manual_bulk / auto_cron_error_lead): picked не входив у eligible —
+            // зберігаємо стару поведінку саме для примусово вибраної групи.
+            if (!$picked_in_eligible) {
+                $newEff = (int)($picked['eff_tmp'] ?? 0) - (int)$sumW;
+                $wpdb->update(
+                    $table_groups,
+                    [
+                        'eff'        => $newEff,
+                        'updated_at' => $assigned_at,
+                    ],
+                    ['id' => $picked_id],
+                    ['%d','%s'],
+                    ['%d']
+                );
+            }
         }
 
         // КРОК 7. Логування — статус залежить від винятку, але partner_id знову чистий список

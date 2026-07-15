@@ -312,7 +312,7 @@ function leadrouter_create_custom_fields()
         ));
 
     // ===== PARTNER =====
-    Container::make('post_meta', __('Налаштування партнера', 'leadrouter'))
+    $lr_partner_container = Container::make('post_meta', __('Налаштування партнера', 'leadrouter'))
         ->where('post_type', '=', 'leadrouter_partner')
         ->add_tab(__('Основні', 'leadrouter'), array(
 
@@ -410,8 +410,11 @@ function leadrouter_create_custom_fields()
             Field::make('time', 'leadrouter_partner_sun_start', __('Початок', 'leadrouter'))->set_width(20),
             Field::make('time', 'leadrouter_partner_sun_end', __('Завершення', 'leadrouter'))->set_width(20),
             Field::make('html', 'leadrouter_partner_sun_label_end')->set_html('')->set_width(30),
-        ))
-        // ===== Білінг (вбудована сторінка білінгу партнера) =====
+        ));
+
+    // ===== Білінг — вкладки ховаємо для обмеженої ролі leadrouter_manager =====
+    if (!(class_exists('LeadRouter_Restricted_Access') && LeadRouter_Restricted_Access::is_manager())) {
+        $lr_partner_container
         ->add_tab(__('Billing', 'leadrouter'), array(
             Field::make('html', 'leadrouter_partner_billing_main')
                 ->set_html(function () {
@@ -431,7 +434,10 @@ function leadrouter_create_custom_fields()
                     $pid = get_the_ID();
                     return $pid ? LR_Partner_Billing_Page::tab_billing_history_html((int)$pid) : '';
                 }),
-        ))
+        ));
+    }
+
+    $lr_partner_container
         ->add_tab(__('Тех інфо', 'leadrouter'), array(
 
             Field::make('select', 'leadrouter_partner_type', __('Тип партнера', 'leadrouter'))
