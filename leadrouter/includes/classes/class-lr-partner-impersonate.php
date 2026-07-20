@@ -3,7 +3,7 @@
  * LR_Partner_Impersonate — перегляд кабінету партнера з адмінки («Login as partner»).
  *
  * Флоу:
- *   1) Кнопка «View cabinet» на екрані партнера (лише manage_options) →
+ *   1) Кнопка «View cabinet» на екрані партнера (адмін або менеджер LeadRouter) →
  *      handle_start(): перевіряє права+nonce, знаходить WP-user, привʼязаного
  *      до партнера (LR_Partner_Auth::get_user_id_for_partner), запамʼятовує
  *      поточного адміна в короткоживучому transient (ключ — випадковий токен
@@ -15,7 +15,8 @@
  *      повертає auth-кукі адміну, підчищає слід.
  *
  * Безпека:
- *   - Ініціювати може лише manage_options (перевіряється ДО підміни сесії).
+ *   - Ініціювати може лише manage_options — реальний адмін або менеджер LeadRouter
+ *     (роль leadrouter_manager отримує цей cap у контексті LR); перевірка ДО підміни.
  *   - «Хто був адміном» зберігається СЕРВЕРНО (transient), у кукі — лише
  *     випадковий токен-покажчик; підробити токен = вгадати 32-символьний
  *     випадковий рядок.
@@ -87,12 +88,19 @@ if (!class_exists('LR_Partner_Impersonate')) {
 
             $admin_id = get_current_user_id();
 
+            // Хто ініціював — справжній адмін чи менеджер LeadRouter (для audit trail).
+            $actor_type = (class_exists('LeadRouter_Restricted_Access')
+                && LeadRouter_Restricted_Access::is_manager())
+                ? 'manager'
+                : 'admin';
+
             // Токен-покажчик: сам admin_id у кукі НЕ зберігаємо, лише випадковий токен.
             $token = wp_generate_password(32, false, false);
             set_transient(self::TRANSIENT_PREFIX . $token, [
                 'admin_id'   => $admin_id,
                 'user_id'    => $target_user_id,
                 'partner_id' => $partner_id,
+                'actor_type' => $actor_type,
             ], self::TTL);
 
             self::set_cookie($token, time() + self::TTL);
@@ -105,7 +113,7 @@ if (!class_exists('LR_Partner_Impersonate')) {
             if (class_exists('LR_Billing')) {
                 LR_Billing::log_audit([
                     'partner_id'   => $partner_id,
-                    'actor_type'   => 'admin',
+                    'actor_type'   => $actor_type,
                     'actor_id'     => $admin_id,
                     'action'       => 'impersonate_start',
                     'entity_type'  => 'partner_billing',
@@ -143,6 +151,7 @@ if (!class_exists('LR_Partner_Impersonate')) {
 
             $admin_id   = (int) $data['admin_id'];
             $partner_id = (int) ($data['partner_id'] ?? 0);
+            $actor_type = !empty($data['actor_type']) ? (string) $data['actor_type'] : 'admin';
 
             wp_clear_auth_cookie();
             wp_set_current_user($admin_id);
@@ -153,7 +162,7 @@ if (!class_exists('LR_Partner_Impersonate')) {
             if (class_exists('LR_Billing')) {
                 LR_Billing::log_audit([
                     'partner_id'   => $partner_id,
-                    'actor_type'   => 'admin',
+                    'actor_type'   => $actor_type,
                     'actor_id'     => $admin_id,
                     'action'       => 'impersonate_end',
                     'entity_type'  => 'partner_billing',

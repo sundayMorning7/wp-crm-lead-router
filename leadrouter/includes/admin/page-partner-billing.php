@@ -118,10 +118,9 @@ if (!class_exists('LR_Partner_Billing_Page')) {
                 $badge = '<span class="lr-badge lr-badge--active">✅ ' . esc_html__('Active', 'leadrouter') . '</span>';
             }
 
-            // Роль leadrouter_manager має manage_options лише в контексті LeadRouter, але
-            // екшен імперсонації їй не дозволений — тож кнопку їй не показуємо (інакше 403).
-            $can_impersonate = current_user_can('manage_options')
-                && !(class_exists('LeadRouter_Restricted_Access') && LeadRouter_Restricted_Access::is_manager());
+            // Роль leadrouter_manager має manage_options в контексті LeadRouter, і екшен
+            // імперсонації їй тепер дозволений — тож кнопку показуємо і адміну, і менеджеру.
+            $can_impersonate = current_user_can('manage_options');
 
             $view_cabinet = '';
             if ($can_impersonate && class_exists('LR_Partner_Impersonate')

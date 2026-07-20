@@ -60,8 +60,7 @@ class LeadRouter_Restricted_Access
      * міняти тарифи й Stripe-ID партнера, реактивувати партнера.
      *
      * НАВМИСНО закриті:
-     *  - 'lr_billing_report_save_adstats' / 'lr_billing_report_export_csv' — Billing Report;
-     *  - 'lr_admin_view_partner' / 'lr_admin_return_from_partner' — вхід під партнера.
+     *  - 'lr_billing_report_save_adstats' / 'lr_billing_report_export_csv' — Billing Report.
      */
     private static $actions = [
         // Ліди
@@ -91,6 +90,12 @@ class LeadRouter_Restricted_Access
         // (валідує post_type = leadrouter_partner), user резолвиться за зв'язком партнера,
         // пароль випадковий і надсилається партнеру ЛИСТОМ — в адмінці не показується.
         'lr_partner_gen_password',  // wp_ajax
+        // ── Вхід у кабінет партнера очима менеджера (імперсонація) ──
+        // handle_start підмінює сесію на партнерського user; повертає handle_return.
+        // Ініціюється лише з екрана партнера (валідний nonce + partner_id, який
+        // валідується як published leadrouter_partner). Старт/кінець — в audit log.
+        'lr_admin_view_partner',        // admin_post — «стати» партнером
+        'lr_admin_return_from_partner', // admin_post — повернутися в адмінку
     ];
 
     /**
