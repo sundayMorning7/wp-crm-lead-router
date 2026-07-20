@@ -444,13 +444,14 @@ function leadrouter_create_custom_fields()
                     'custom' => __('API', 'leadrouter'),
                     'email' => __('Email', 'leadrouter'),
                 ))
-                ->set_default_value('standard')
+                ->set_default_value('custom')
                 ->set_required(true),
 
 
             Field::make('text', 'leadrouter_partner_endpoint', __('Endpoint URL', 'leadrouter'))
                 ->set_width(50)
                 ->set_help_text('Повний URL партнерського API')
+                ->set_default_value('https://api.batscrm.com/leads')
                 ->set_conditional_logic([
                     [
                         'field' => 'leadrouter_partner_type',
@@ -469,7 +470,7 @@ function leadrouter_create_custom_fields()
                     'query' => 'Query (?apikey=...)',
                     'none' => 'None',
                 ])
-                ->set_default_value('header')
+                ->set_default_value('payload_authkey')
                 ->set_conditional_logic([
                     [
                         'field' => 'leadrouter_partner_type',
