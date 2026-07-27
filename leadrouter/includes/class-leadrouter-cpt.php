@@ -589,6 +589,7 @@ function leadrouter_create_custom_fields()
                         'int'            => 'int',
                         'float2'         => 'float(2)',
                         'date_Ymd'       => 'date:Y-m-d (ps)',
+                        'date_Ymd_slash'       => 'date:Y/m/d (ps)',
                         'date_mdy'       => 'date:m/d/Y (ps)',
                         'date_mdy_dash'  => 'date → MM-DD-YYYY',       // ⬅️ нове
                         'split_name_fn'  => 'split_name:fn (з name)',
@@ -600,7 +601,8 @@ function leadrouter_create_custom_fields()
                         'inop_binary_to_bool_reverse' => 'condition→vehicle_inop (Running→true, інше→false)', // ⬅️ нове
                         'phone_us_dashed'=> 'phone → 111-111-1111',    // ⬅️ нове
                         'map_transport_type' => 'transport_type: 1 → Open, 0 → Closed', // ⬅️ нове
-                        'map_transport_type_reverse' => 'transport_type: 0 → 1, 1 → 0' // ⬅️ нове
+                        'map_transport_type_open_enclosed' => 'transport_type: 1 → Open, 0 → Enclosed', // ⬅️ нове
+                        'map_transport_type_reverse' => 'transport_type: 0 → 1, 1 → 0', // ⬅️ нове
                     ])->set_default_value('none'),
                     Field::make('text', 'default_value', 'Default value')->set_width(25)
                         ->set_help_text('Підставляється, якщо значення порожнє'),
@@ -619,6 +621,7 @@ function leadrouter_create_custom_fields()
                 <option value="capscrm">CapsCRM</option>
                 <option value="onespacecrm">OnespaceCRM</option>
                 <option value="mile_autotransport">Mile-Autotransport</option>
+                <option value="door_to_door">Door to Door Transport</option>
             </select>
             <button type="button" class="button button-primary js-lr-apply-map-preset">Застосувати пресет</button>
     ')
@@ -862,5 +865,37 @@ function lr_partner_carlink_default_map(): array {
         ['our_key' => 'Vehicles.0.vehicle_model',    'their_key' => 'Vehicles.0.model',   'transform' => 'title',     'default_value' => ''],
         ['our_key' => 'Vehicles.0.vehicle_type',     'their_key' => 'Vehicles.0.type',    'transform' => 'title',     'default_value' => 'Car'],
         ['our_key' => 'Vehicles.0.vehicle_inop',     'their_key' => 'Vehicles.0.isInoperable','transform' => 'inop_binary_to_bool', 'default_value' => ''],
+    ];
+}
+
+function lr_partner_door_to_door_transport_default_map(): array {
+    return [
+        ['our_key' => 'auth_key',                    'their_key' => 'auth_key',                 'transform' => 'none',            'default_value' => ''],
+
+        ['our_key' => 'first_name',                  'their_key' => 'first_name',               'transform' => 'title',           'default_value' => ''],
+        ['our_key' => 'last_name',                   'their_key' => 'last_name',                'transform' => 'title',           'default_value' => ''],
+        ['our_key' => 'email',                       'their_key' => 'email',                    'transform' => 'lower',           'default_value' => ''],
+        ['our_key' => 'phone',                       'their_key' => 'phone',                    'transform' => 'digits',          'default_value' => ''],
+        ['our_key' => 'comment_from_shipper',        'their_key' => 'comment_from_shipper',     'transform' => 'none',            'default_value' => ''],
+
+        ['our_key' => 'origin_city',                 'their_key' => 'origin_city',              'transform' => 'title',           'default_value' => ''],
+        ['our_key' => 'origin_state',                'their_key' => 'origin_state',             'transform' => 'upper',           'default_value' => ''],
+        ['our_key' => 'origin_postal_code',          'their_key' => 'origin_postal_code',       'transform' => 'digits',          'default_value' => ''],
+        ['our_key' => 'origin_country',              'their_key' => 'origin_country',           'transform' => 'none',            'default_value' => ''],
+
+        ['our_key' => 'destination_city',            'their_key' => 'destination_city',         'transform' => 'title',           'default_value' => ''],
+        ['our_key' => 'destination_state',           'their_key' => 'destination_state',        'transform' => 'upper',           'default_value' => ''],
+        ['our_key' => 'destination_postal_code',     'their_key' => 'destination_postal_code',  'transform' => 'digits',          'default_value' => ''],
+        ['our_key' => 'destination_country',         'their_key' => 'destination_country',      'transform' => 'none',            'default_value' => ''],
+
+        ['our_key' => 'ship_date',                   'their_key' => 'ship_date',                'transform' => 'date_Ymd_slash',        'default_value' => ''],
+        ['our_key' => 'transport_type',              'their_key' => 'transport_type',           'transform' => 'map_transport_type_open_enclosed', 'default_value' => 'Open'],
+
+        // Vehicles array (first vehicle)
+        ['our_key' => 'Vehicles.0.vehicle_inop',     'their_key' => 'vehicles.0.vehicle_inop',  'transform' => 'inop_binary_to_bool', 'default_value' => 'false'],
+        ['our_key' => 'Vehicles.0.vehicle_make',     'their_key' => 'vehicles.0.vehicle_make',  'transform' => 'title',             'default_value' => ''],
+        ['our_key' => 'Vehicles.0.vehicle_model',    'their_key' => 'vehicles.0.vehicle_model', 'transform' => 'title',             'default_value' => ''],
+        ['our_key' => 'Vehicles.0.vehicle_model_year','their_key' => 'vehicles.0.vehicle_model_year','transform' => 'int','default_value' => ''],
+        ['our_key' => 'Vehicles.0.vehicle_type',     'their_key' => 'vehicles.0.vehicle_type',  'transform' => 'title',             'default_value' => ''],
     ];
 }

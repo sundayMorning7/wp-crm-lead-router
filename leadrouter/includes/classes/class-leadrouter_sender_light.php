@@ -918,6 +918,7 @@ if (!class_exists('LeadRouter_Sender_Light')) {
                 'int',
                 'float2',
                 'date_Ymd',
+                'date_Ymd_slash',
                 'date_mdy',
                 'date_mdy_dash',
                 'phone_us_dashed',
@@ -929,7 +930,8 @@ if (!class_exists('LeadRouter_Sender_Light')) {
                 'inop_binary_to_bool',
                 'inop_binary_to_bool_reverse',
                 'map_transport_type',
-                'map_transport_type_reverse',
+                'map_transport_type_open_enclosed',
+                'map_transport_type_reverse'
             ];
 
             return in_array($transform, $allowed, true);

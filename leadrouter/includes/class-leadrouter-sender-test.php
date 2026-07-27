@@ -201,26 +201,34 @@ if (!function_exists('lr_build_partner_payload')) {
             $out[$their] = $value;
         }
 
-        // 🧰 Постобробка: якщо є ключі типу "Vehicles.0.*", збираємо їх у масив
+        // 🧰 Постобробка: якщо є ключі типу "Vehicles.0.*" або "vehicles.0.*", збираємо їх у массив
         $vehicles = [];
+        $foundVehiclesLower = false;
+        $foundVehiclesUpper = false;
         foreach ($out as $key => $value) {
-            if (strpos($key, 'Vehicles.') === 0) {
+            if (stripos($key, 'vehicles.') === 0) {
                 // розбиваємо Vehicles.0.vehicle_model_year → [Vehicles, 0, vehicle_model_year]
                 $parts = explode('.', $key);
                 if (count($parts) >= 3) {
                     $index = (int)$parts[1];
                     $field = $parts[2];
                     $vehicles[$index][$field] = $value;
-                    unset($out[$key]); // видаляємо старий плоский ключ
+                    unset($out[$key]); // видаляємо старый плоский ключ
+                    if ($parts[0] === 'vehicles') $foundVehiclesLower = true;
+                    if ($parts[0] === 'Vehicles') $foundVehiclesUpper = true;
                 }
             }
         }
 
         if (!empty($vehicles)) {
-            // сортуємо по індексах, якщо треба
             ksort($vehicles);
-            // збираємо як масив
-            $out['Vehicles'] = array_values($vehicles);
+            $final = array_values($vehicles);
+            // Если были ключи lower-case 'vehicles', отдаём нижний регистр, иначе 'Vehicles'
+            if ($foundVehiclesLower && !$foundVehiclesUpper) {
+                $out['vehicles'] = $final;
+            } else {
+                $out['Vehicles'] = $final;
+            }
         }
 
         return $out;

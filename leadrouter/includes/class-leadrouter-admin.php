@@ -73,6 +73,7 @@ class LeadRouter_Admin
                     'onespacecrm' => lr_partner_onespacecrm_default_map(),
                     'mile_autotransport' => lr_partner_mile_autotransport_default_map(),
                     'carlink' => lr_partner_carlink_default_map(),
+                    'door_to_door' => lr_partner_door_to_door_transport_default_map(),
                 ],
                 'presetSettings' => [
                     'bats' => [
@@ -119,6 +120,13 @@ class LeadRouter_Admin
                     ],
                     'carlink' => [
                         'endpoint' => 'https://api-nt.carlink.pro/api/v1/Leads/ProvideLead',
+                        'auth_variant' => 'none',
+                        'api_key' => '',
+                        'api_key_header' => '',
+                        'require_ok_json' => false,
+                    ],
+                    'door_to_door' => [
+                        'endpoint' => 'https://www.mavspanel.com/parser/post_processing.php?source=hpl1',
                         'auth_variant' => 'none',
                         'api_key' => '',
                         'api_key_header' => '',
