@@ -248,14 +248,9 @@ class LeadRouter_Leads {
 
     public static function update_sent_summary(int $lead_id, array $partners): void {
 
-        error_log('update_sent_summary fn1: lead_id=' . $lead_id);
-
         if ($lead_id <= 0 || empty($partners)) {
             return;
         }
-
-
-        error_log('update_sent_summary fn2: lead_id=' . $lead_id);
 
         self::boot();
         $table = self::t_leads();

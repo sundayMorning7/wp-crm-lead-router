@@ -232,11 +232,8 @@ class LeadRouter_Flow
 
             $p['group_post_id'] = $group_post_id;
 
-
-            // TODO подвійне логування
             // 🧰 Фільтрація партнера — якщо причина повернеться, партнер пропускається
-            $reason = self::filter_partner($p); // тут має перевіряти і from_state, і to_state
-
+            $reason = self::filter_partner($p); // перевіряє активність, from_state та to_state
 
             if ($reason) {
                 $log_id = self::log_attempt($lead_id, $pid, 'skipped', [
@@ -254,30 +251,6 @@ class LeadRouter_Flow
                     'status' => 'skipped',
                     'log_id' => is_wp_error($log_id) ? 0 : (int)$log_id,
                     'error' => $reason
-                ];
-                $results['all'][] = end($results['failed']);
-                continue;
-            }
-
-            // 🕒 Закритий або без ліміту — просто пропускаємо (без постановки в чергу)
-            if ((empty($p['open_now']) || (int)$p['limit_left'] <= 0) && ($opts['dispatch_method'] != 'manual_bulk') && $opts['dispatch_method'] != 'auto_cron_error_lead') {
-                $err_code = empty($p['open_now']) ? 'partner_closed' : 'limit_exceeded';
-                $log_id = self::log_attempt($lead_id, $pid, 'skipped', [
-                    'group_post_id' => $group_post_id,
-                    'group_name' => $group_name,
-                    'dispatch_method' => $dispatch_method,
-                    'meta' => self::compact_partner_meta($p),
-                    'error_code' => $err_code,
-                    'is_skipped' => 1,
-                    'lead_from_state' => $lead_from_state,
-                    'lead_to_state' => $lead_to_state,
-                ]);
-                $results['failed'][] = [
-                    'partner_id' => $pid,
-                    'partner_name' => $pname,
-                    'status' => 'skipped',
-                    'log_id' => is_wp_error($log_id) ? 0 : (int)$log_id,
-                    'error' => $err_code
                 ];
                 $results['all'][] = end($results['failed']);
                 continue;
@@ -351,13 +324,10 @@ class LeadRouter_Flow
                 // ✅ Є хоча б один успішний партнер → processed
                 self::mark_lead_status($lead_id, 'sent', []);
 
-                error_log('update_sent_summary before: lead_id=' . $lead_id);
                 // 🧾 Оновлюємо sent_summary_json у таблиці лідів
                 if (class_exists('LeadRouter_Leads')) {
                     $partners_summary = [];
 
-
-                    error_log('update_sent_summary start: lead_id=' . $lead_id);
                     foreach ($results['sent'] as $row) {
                         $partners_summary[] = [
                             'partner_id' => (int)($row['partner_id'] ?? 0),
