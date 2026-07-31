@@ -33,6 +33,7 @@ class LeadRouter_Dispatcher_Eff
 
         $dow = (int)$now->format('N'); // 1..7
         $assigned_at = $now->format('Y-m-d H:i:s');
+        $dispatch_method = (string)($opts['dispatch_method'] ?? '');
 
         [$day_start, $day_end] = self::today_window_mysql_est($now);
 
@@ -119,10 +120,10 @@ class LeadRouter_Dispatcher_Eff
         }
 
 
-        if (empty($eligible) && $opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
+        if (empty($eligible) && $dispatch_method !== 'manual_bulk' && $dispatch_method !== 'auto_cron_error_lead') {
             return new WP_Error('no_capacity_today', 'All groups reached today’s capacity (EST).');
         }
-        if ($sumW <= 0 && $opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
+        if ($sumW <= 0 && $dispatch_method !== 'manual_bulk' && $dispatch_method !== 'auto_cron_error_lead') {
             return new WP_Error('weight_zero', 'All effective weights are zero for today (EST).');
         }
 
