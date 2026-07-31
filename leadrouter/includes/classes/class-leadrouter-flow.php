@@ -372,8 +372,22 @@ class LeadRouter_Flow
                     }
                 }
             } elseif ($cnt_attempted === 0) {
-                // 🕒 Жодної спроби → всі пропущені → await
-                self::mark_lead_status($lead_id, 'state_error', ['reason' => 'no_attempts_all_skipped']);
+                // 🕒 Жодної спроби → всі пропущені:
+                // - state_error лише коли всі пропуски через state_filter_fail (AK/HI)
+                // - в інших випадках await
+                $only_state_filter_fail = true;
+                foreach ($results['all'] as $entry) {
+                    if (($entry['status'] ?? '') !== 'skipped' || ($entry['error'] ?? '') !== 'state_filter_fail') {
+                        $only_state_filter_fail = false;
+                        break;
+                    }
+                }
+
+                if ($only_state_filter_fail) {
+                    self::mark_lead_status($lead_id, 'state_error', ['reason' => 'state_filter_fail']);
+                } else {
+                    self::mark_lead_status($lead_id, 'await', ['reason' => 'no_attempts_all_skipped']);
+                }
             } else {
                 // ❌ Були спроби → всі впали → error
                 self::mark_lead_status($lead_id, 'error', [
