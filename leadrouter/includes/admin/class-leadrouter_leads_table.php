@@ -86,6 +86,13 @@ class LeadRouter_Leads_Table extends WP_List_Table
 
             echo ' <button type="button" class="button lr-bulk-send-btn">📣 ' . esc_html__('Send selected', 'leadrouter') . '</button>';
             echo ' <button type="button" class="button lr-bulk-delete-btn" style="margin-left:6px;">🗑 Delete selected</button>';
+            echo ' <select class="lr-bulk-status-select" style="margin-left:6px; max-width:220px;">';
+            echo '<option value="">' . esc_html__('Change status to…', 'leadrouter') . '</option>';
+            foreach ($this->get_bulk_status_change_options() as $status_val => $status_label) {
+                echo '<option value="' . esc_attr((string)$status_val) . '">' . esc_html((string)$status_label) . '</option>';
+            }
+            echo '</select>';
+            echo ' <button type="button" class="button lr-bulk-status-btn">' . esc_html__('Apply status', 'leadrouter') . '</button>';
             echo ' <span class="lr-bulk-status" aria-live="polite" style="margin-left:8px;"></span>';
 
             echo '</div>';
@@ -808,16 +815,20 @@ class LeadRouter_Leads_Table extends WP_List_Table
                 $params[] = (int)$search;
             } else {
                 $like = '%' . $wpdb->esc_like($search) . '%';
+                $phone_digits = preg_replace('/\D+/', '', $search);
+                $phone_like = '%' . $wpdb->esc_like((string)$phone_digits) . '%';
                 $where .= " AND (
                 l.name  LIKE %s OR
                 l.email LIKE %s OR
                 l.phone LIKE %s OR
-                l.utm_source LIKE %s
+                l.utm_source LIKE %s OR
+                REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(l.phone, '-', ''), ' ', ''), '(', ''), ')', ''), '+', '') LIKE %s
             )";
                 $params[] = $like;
                 $params[] = $like;
                 $params[] = $like;
                 $params[] = $like;
+                $params[] = (strlen((string)$phone_digits) >= 4) ? $phone_like : '__leadrouter_no_phone_match__';
             }
         }
 
@@ -1516,18 +1527,24 @@ class LeadRouter_Leads_Table extends WP_List_Table
 
     protected function get_status_options(): array
     {
-        // під себе можеш скоригувати/розширити
         return [
-            ''         => 'All statuses',
-            //'new'      => 'new',
-            //'assigned' => 'assigned',
-            'sent'     => 'sent',
-            'failed'   => 'failed',
-            'error'    => 'error',
-            'await'    => 'await',
+            ''                   => 'All statuses',
+            'new'                => 'new',
+            'processing_newcron' => 'processing_newcron',
+            'sent'               => 'sent',
+            'failed'             => 'failed',
+            'error'              => 'error',
+            'await'              => 'await',
+            'state_error'        => 'state_error',
         ];
     }
 
-}
+    protected function get_bulk_status_change_options(): array
+    {
+        $all = $this->get_status_options();
+        unset($all['']);
+        return $all;
+    }
 
+}
 

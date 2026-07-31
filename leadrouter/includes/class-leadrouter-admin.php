@@ -24,6 +24,7 @@ class LeadRouter_Admin
         add_action('wp_ajax_leadrouter_manual_broadcast', [__CLASS__, 'ajax_leadrouter_manual_broadcast']);
         add_action('wp_ajax_leadrouter_manual_broadcast_bulk', [__CLASS__, 'ajax_leadrouter_manual_broadcast_bulk']);
         add_action('wp_ajax_leadrouter_delete_leads_cascade', [__CLASS__, 'ajax_delete_leads_cascade']);
+        add_action('wp_ajax_leadrouter_bulk_update_status', [__CLASS__, 'ajax_leadrouter_bulk_update_status']);
 
         // Білінг партнера: меню + AJAX-ендпоінти
         if (class_exists('LR_Partner_Billing_Page')) {
@@ -185,6 +186,7 @@ class LeadRouter_Admin
                 'manualBroadcastAction' => 'leadrouter_manual_broadcast',
                 'manualBroadcastBulkAction' => 'leadrouter_manual_broadcast_bulk',
                 'deleteLeadsCascadeAction' => 'leadrouter_delete_leads_cascade',
+                'bulkStatusUpdateAction' => 'leadrouter_bulk_update_status',
             ]);
 
             // Панель статистики лідів (згортна) — Sent today (EST) + Status count
@@ -590,7 +592,7 @@ class LeadRouter_Admin
         $s = isset($_GET['s']) ? esc_attr($_GET['s']) : '';
         echo '<p class="search-box">';
         echo '<label class="screen-reader-text" for="leadrouter-search-input">' . esc_html__('Search Leads', 'leadrouter') . '</label>';
-        echo '<input type="search" id="leadrouter-search-input" name="s" value="' . $s . '" />';
+        echo '<input type="search" id="leadrouter-search-input" name="s" value="' . $s . '" placeholder="' . esc_attr__('ID / phone / email / name / UTM', 'leadrouter') . '" />';
         submit_button(__('Search'), 'secondary', '', false);
         echo '</p>';
 
@@ -1469,6 +1471,87 @@ class LeadRouter_Admin
         ]);
     }
 
+    public static function ajax_leadrouter_bulk_update_status()
+    {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Access denied'], 403);
+        }
+        check_ajax_referer('leadrouter-admin-js', 'nonce');
+
+        $lead_ids = isset($_POST['lead_ids']) ? (array)wp_unslash($_POST['lead_ids']) : [];
+        $lead_ids = array_values(array_filter(array_map('intval', $lead_ids)));
+        $status = isset($_POST['status']) ? sanitize_key((string)wp_unslash($_POST['status'])) : '';
+
+        if (empty($lead_ids)) {
+            wp_send_json_error(['message' => 'No leads selected'], 400);
+        }
+
+        $allowed_statuses = ['new', 'processing_newcron', 'sent', 'failed', 'error', 'await', 'state_error'];
+        if ($status === '' || !in_array($status, $allowed_statuses, true)) {
+            wp_send_json_error(['message' => 'Invalid status selected'], 400);
+        }
+
+        if (!class_exists('LeadRouter_Flow')) {
+            wp_send_json_error(['message' => 'LeadRouter_Flow not loaded'], 500);
+        }
+
+        global $wpdb;
+        $leads_table = $wpdb->prefix . 'leadrouter_leads';
+        $table = class_exists('LeadRouter_Leads_Table') ? new LeadRouter_Leads_Table() : null;
+
+        $results = [];
+        $rows_html = [];
+        $updated = 0;
+
+        foreach ($lead_ids as $lead_id) {
+            $lead_exists = (int)$wpdb->get_var(
+                $wpdb->prepare("SELECT COUNT(*) FROM {$leads_table} WHERE id = %d", $lead_id)
+            );
+
+            if ($lead_exists <= 0) {
+                $results[$lead_id] = [
+                    'lead_id' => $lead_id,
+                    'ok' => false,
+                    'message' => 'Lead not found',
+                ];
+                continue;
+            }
+
+            $ok = (bool)LeadRouter_Flow::mark_lead_status($lead_id, $status, [
+                'source' => 'admin_bulk_status_change',
+                'user_id' => get_current_user_id(),
+            ]);
+
+            if (!$ok) {
+                $results[$lead_id] = [
+                    'lead_id' => $lead_id,
+                    'ok' => false,
+                    'message' => 'Unable to update status',
+                ];
+                continue;
+            }
+
+            $updated++;
+            $results[$lead_id] = [
+                'lead_id' => $lead_id,
+                'ok' => true,
+                'message' => 'updated',
+            ];
+
+            if ($table && method_exists($table, 'render_row_html_by_lead_id')) {
+                $rows_html[$lead_id] = $table->render_row_html_by_lead_id($lead_id);
+            }
+        }
+
+        wp_send_json_success([
+            'status' => $status,
+            'updated' => $updated,
+            'failed' => count($lead_ids) - $updated,
+            'results' => $results,
+            'rows_html' => $rows_html,
+        ]);
+    }
+
 
     private static function delete_leads_cascade(array $lead_ids): array
     {
@@ -1531,5 +1614,3 @@ class LeadRouter_Admin
 
 
 }
-
-
