@@ -824,20 +824,20 @@ class LeadRouter_Flow
         // $allowed = ['new','await','processed','error','sent'];
         // if (!in_array($status, $allowed, true)) { $status = 'error'; }
 
-        // оновлюємо статус у leads
+        // оновлюємо статус у leads (+ фіксуємо час зміни для watchdog)
+        $now = self::now_mysql_est();
         $wpdb->update(
             $table,
-            ['response_status' => $status, 'status' => $status],
+            ['response_status' => $status, 'status' => $status, 'status_updated_at' => $now],
             ['id' => $lead_id],
-            ['%s'],
+            ['%s', '%s', '%s'],
             ['%d']
         );
-
 
         if ($status === 'sent') {
             $wpdb->update(
                 $table,
-                ['sent_at' => self::now_mysql_est()],
+                ['sent_at' => $now],
                 ['id' => $lead_id],
                 ['%s'],
                 ['%d']
