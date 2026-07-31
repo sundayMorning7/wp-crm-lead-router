@@ -172,10 +172,9 @@ class LeadRouter_Dispatcher_Eff
 
 
         // КРОК 5. Визначення виняткових штатів AK/HI
-        $from_state = strtoupper(trim((string)($opts['lead_from_state'] ?? '')));
-        $to_state   = strtoupper(trim((string)($opts['lead_to_state'] ?? '')));
-        $excluded   = ['AK', 'HI'];
-        $isExcludedState = in_array($from_state, $excluded, true) || in_array($to_state, $excluded, true);
+        $from_state      = strtoupper(trim((string)($opts['lead_from_state'] ?? '')));
+        $to_state        = strtoupper(trim((string)($opts['lead_to_state'] ?? '')));
+        $isExcludedState = LeadRouter_State_Filter::is_excluded_state($from_state, $to_state);
 
         // КРОК 6. Оновлення eff — тільки якщо НЕ AK/HI
         // Smooth Weighted Round Robin: усі eligible-групи накопичують eff += weight_today

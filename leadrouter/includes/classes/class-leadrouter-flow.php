@@ -135,17 +135,11 @@ class LeadRouter_Flow
 
             do_action('leadrouter_after_dispatch', $lead_id, $opts, $group);
 
+            $isExcludedState = LeadRouter_State_Filter::is_excluded_state(
+                (string)($opts['lead_from_state'] ?? ''),
+                (string)($opts['lead_to_state'] ?? '')
+            );
 
-            // TODO Дурна логіка відслідковування гаваїв аляски - багато дублюючих перевірок, треба переробити архітектуру
-
-
-            $from_state = strtoupper(trim((string)($opts['lead_from_state'] ?? '')));
-            $to_state = strtoupper(trim((string)($opts['lead_to_state'] ?? '')));
-            $excluded = ['AK', 'HI'];
-            $isExcludedState = in_array($from_state, $excluded, true) || in_array($to_state, $excluded, true);
-
-
-            // КРОК 6. Оновлення eff — тільки якщо НЕ AK/HI
             if (!$isExcludedState) {
                 self::mark_lead_status($lead_id, 'await', [
                     'reason' => 'no_group_for_lead',
@@ -157,7 +151,6 @@ class LeadRouter_Flow
                     'error_msg' => $group->get_error_message(),
                 ]);
             }
-
 
             return $group;
         }
@@ -443,21 +436,10 @@ class LeadRouter_Flow
         if (!$is_active) return 'deactivated_partner';
 
         // 📍 Обмеження по штатах Alaska / Hawaii
-        $from_state = strtoupper(trim((string)($p['lead_from_state'] ?? '')));
-        $to_state = strtoupper(trim((string)($p['lead_to_state'] ?? '')));
+        $from_state = (string)($p['lead_from_state'] ?? '');
+        $to_state   = (string)($p['lead_to_state'] ?? '');
 
-        $allowAK = get_post_meta($pid, '_leadrouter_partner_allow_alaska', true);
-        $allowHI = get_post_meta($pid, '_leadrouter_partner_allow_hawaii', true);
-
-        if (
-            ($from_state === 'AK' || $to_state === 'AK') && !$allowAK
-        ) {
-            return 'state_filter_fail';
-        }
-
-        if (
-            ($from_state === 'HI' || $to_state === 'HI') && !$allowHI
-        ) {
+        if (!LeadRouter_State_Filter::partner_allows($pid, $from_state, $to_state)) {
             return 'state_filter_fail';
         }
 

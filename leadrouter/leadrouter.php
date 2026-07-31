@@ -45,6 +45,7 @@ require_once LEADROUTER_PLUGIN_DIR . 'includes/leadrouter-main.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/helpers.php';
 
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-hooks.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-state-filter.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_dispatcher_eff.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-partners.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_sender_light.php';

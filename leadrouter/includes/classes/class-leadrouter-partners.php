@@ -412,22 +412,7 @@ class LeadRouter_Partners
 
     private static function state_allowed(int $partner_post_id, string $lead_from_state, string $lead_to_state): bool
     {
-        $need_ak = ($lead_from_state === 'AK' || $lead_to_state === 'AK');
-        $need_hi = ($lead_from_state === 'HI' || $lead_to_state === 'HI');
-
-        if (!$need_ak && !$need_hi) return true;
-
-        if ($need_ak) {
-            $allow_ak = get_post_meta($partner_post_id, 'leadrouter_partner_allow_alaska', true);
-            if ((string)$allow_ak !== '1' && $allow_ak !== 1 && $allow_ak !== true) return false;
-        }
-
-        if ($need_hi) {
-            $allow_hi = get_post_meta($partner_post_id, 'leadrouter_partner_allow_hawaii', true);
-            if ((string)$allow_hi !== '1' && $allow_hi !== 1 && $allow_hi !== true) return false;
-        }
-
-        return true;
+        return LeadRouter_State_Filter::partner_allows($partner_post_id, $lead_from_state, $lead_to_state);
     }
 
 
