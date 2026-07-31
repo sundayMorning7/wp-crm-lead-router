@@ -10,5 +10,11 @@
         <testsuite name="LeadRouter Unit Tests">
             <directory>tests/Unit</directory>
         </testsuite>
+        <testsuite name="LeadRouter Contract Tests">
+            <directory>tests/Contract</directory>
+        </testsuite>
+        <testsuite name="LeadRouter Integration Tests">
+            <directory>tests/Integration</directory>
+        </testsuite>
     </testsuites>
 </phpunit>

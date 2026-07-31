@@ -191,30 +191,54 @@ if (!function_exists('wp_json_encode')) {
 
 if (!function_exists('wp_remote_post')) {
     function wp_remote_post(string $url, array $args = []) {
+        if (isset($GLOBALS['__lr_test_wp_remote_post']) && is_callable($GLOBALS['__lr_test_wp_remote_post'])) {
+            return $GLOBALS['__lr_test_wp_remote_post']($url, $args);
+        }
         return new WP_Error('not_implemented', 'wp_remote_post is not available in test env');
     }
 }
 
 if (!function_exists('wp_remote_request')) {
     function wp_remote_request(string $url, array $args = []) {
+        if (isset($GLOBALS['__lr_test_wp_remote_request']) && is_callable($GLOBALS['__lr_test_wp_remote_request'])) {
+            return $GLOBALS['__lr_test_wp_remote_request']($url, $args);
+        }
         return new WP_Error('not_implemented', 'wp_remote_request is not available in test env');
     }
 }
 
 if (!function_exists('wp_remote_retrieve_response_code')) {
     function wp_remote_retrieve_response_code($response) {
+        if (isset($GLOBALS['__lr_test_wp_remote_retrieve_response_code']) && is_callable($GLOBALS['__lr_test_wp_remote_retrieve_response_code'])) {
+            return $GLOBALS['__lr_test_wp_remote_retrieve_response_code']($response);
+        }
+        if (is_array($response) && isset($response['response']['code'])) {
+            return (int)$response['response']['code'];
+        }
         return 0;
     }
 }
 
 if (!function_exists('wp_remote_retrieve_body')) {
     function wp_remote_retrieve_body($response): string {
+        if (isset($GLOBALS['__lr_test_wp_remote_retrieve_body']) && is_callable($GLOBALS['__lr_test_wp_remote_retrieve_body'])) {
+            return (string)$GLOBALS['__lr_test_wp_remote_retrieve_body']($response);
+        }
+        if (is_array($response) && isset($response['body'])) {
+            return (string)$response['body'];
+        }
         return '';
     }
 }
 
 if (!function_exists('wp_remote_retrieve_headers')) {
     function wp_remote_retrieve_headers($response) {
+        if (isset($GLOBALS['__lr_test_wp_remote_retrieve_headers']) && is_callable($GLOBALS['__lr_test_wp_remote_retrieve_headers'])) {
+            return $GLOBALS['__lr_test_wp_remote_retrieve_headers']($response);
+        }
+        if (is_array($response) && isset($response['headers']) && is_array($response['headers'])) {
+            return $response['headers'];
+        }
         return [];
     }
 }
@@ -263,6 +287,9 @@ if (!function_exists('delete_transient')) {
 
 if (!function_exists('carbon_get_post_meta')) {
     function carbon_get_post_meta(int $post_id, string $name, string $container_type = 'post_meta') {
+        if (isset($GLOBALS['__lr_test_carbon_meta'][$post_id . '|' . $name])) {
+            return $GLOBALS['__lr_test_carbon_meta'][$post_id . '|' . $name];
+        }
         return '';
     }
 }
@@ -327,3 +354,4 @@ require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/classes/class-leadrouter-sender.php';
 require_once __DIR__ . '/../includes/classes/class-leadrouter_sender_light.php';
 require_once __DIR__ . '/../includes/classes/class-leadrouter-partners.php';
+require_once __DIR__ . '/../includes/classes/class-leadrouter-flow.php';
