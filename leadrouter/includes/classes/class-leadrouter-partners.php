@@ -294,22 +294,28 @@ class LeadRouter_Partners
     /** Карта partner_id => COUNT(*) (attempts today у заданих статусах) */
     private static function fetch_used_today_map(array $partner_ids, array $statuses, string $day_start, string $day_end): array
     {
-        if (empty($partner_ids)) return [];
+        if (empty($partner_ids) || empty($statuses)) return [];
         global $wpdb;
         $table = $wpdb->prefix . 'leadrouter_partner_logs';
 
-        $ids_in = implode(',', array_map('intval', $partner_ids));
-        $statuses_in = implode(',', array_map(static fn($s) => "'" . esc_sql($s) . "'", $statuses));
-
-        // Лічимо лише ті статуси, що вважаються «використаним слотом» (sent/accepted)
-        $rows = $wpdb->get_results("
+        $status_placeholders = implode(', ', array_fill(0, count($statuses), '%s'));
+        $id_placeholders = implode(', ', array_fill(0, count($partner_ids), '%d'));
+        $sql = "
             SELECT partner_id, COUNT(*) AS cnt
             FROM {$table}
-            WHERE attempted_at BETWEEN '{$day_start}' AND '{$day_end}'
-              AND status IN ({$statuses_in})
-              AND partner_id IN ({$ids_in})
+            WHERE attempted_at BETWEEN %s AND %s
+              AND status IN ({$status_placeholders})
+              AND partner_id IN ({$id_placeholders})
             GROUP BY partner_id
-        ", ARRAY_A);
+        ";
+        $params = array_merge(
+            [$day_start, $day_end],
+            array_values($statuses),
+            array_map('intval', $partner_ids)
+        );
+
+        // Лічимо лише ті статуси, що вважаються «використаним слотом» (sent/accepted)
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
 
         $map = [];
         foreach ($rows as $r) {
