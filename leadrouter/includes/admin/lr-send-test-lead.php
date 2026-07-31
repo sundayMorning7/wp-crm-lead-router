@@ -21,6 +21,8 @@ add_filter('manage_leadrouter_partner_posts_columns', function($columns) {
         if ($key === 'title') {
             $new['lr_partner_status']  = __('Статус', 'leadrouter');
             $new['lr_partner_balance'] = __('Баланс', 'leadrouter');
+            $new['lr_partner_group'] = __('Група', 'leadrouter');
+            $new['lr_partner_integration_type'] = __('Тип інтеграції', 'leadrouter');
         }
     }
     // Фолбек: якщо колонки title немає — додаємо в кінець
@@ -29,6 +31,12 @@ add_filter('manage_leadrouter_partner_posts_columns', function($columns) {
     }
     if (!isset($new['lr_partner_balance'])) {
         $new['lr_partner_balance'] = __('Баланс', 'leadrouter');
+    }
+    if (!isset($new['lr_partner_group'])) {
+        $new['lr_partner_group'] = __('Група', 'leadrouter');
+    }
+    if (!isset($new['lr_partner_integration_type'])) {
+        $new['lr_partner_integration_type'] = __('Тип інтеграції', 'leadrouter');
     }
     return $new;
 });
@@ -96,6 +104,29 @@ add_action('manage_leadrouter_partner_posts_custom_column', function($column, $p
 
     echo '<strong style="color:' . esc_attr($color) . ';">'
         . esc_html(number_format($balance, 2) . ' ' . $currency) . '</strong>';
+}, 10, 2);
+
+add_action('manage_leadrouter_partner_posts_custom_column', function($column, $post_id) {
+    if ($column === 'lr_partner_group') {
+        $group_post_id = (int) get_post_meta($post_id, '_leadrouter_partner_group', true);
+        if ($group_post_id > 0) {
+            $title = get_the_title($group_post_id);
+            if ($title !== '') {
+                echo esc_html($title);
+                return;
+            }
+            echo '#' . (int) $group_post_id;
+            return;
+        }
+        echo '<span style="color:#787c82;">—</span>';
+        return;
+    }
+
+    if ($column === 'lr_partner_integration_type') {
+        $type = (string) get_post_meta($post_id, '_leadrouter_partner_type', true);
+        $type = strtolower(trim($type));
+        echo esc_html($type === 'email' ? 'email' : 'api');
+    }
 }, 10, 2);
 
 // Подключаем JS для обработки клика по кнопке
