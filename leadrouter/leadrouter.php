@@ -3,7 +3,7 @@
  * Plugin Name: LeadRouter by Maks Devda
  * Plugin URI: https://example.com/leadrouter
  * Description: Розподіл лідів між партнерами за групами з логами та адмін-інтерфейсом.
- * Version: 1.7.3
+ * Version: 1.7.4
  * Author: Maks Devda
  * Author URI: https://example.com
  * License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 }
 
 
-define('LEADROUTER_VERSION', '1.7.3');
+define('LEADROUTER_VERSION', '1.7.4');
 define('LEADROUTER_PLUGIN_FILE', __FILE__);
 define('LEADROUTER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('LEADROUTER_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -175,7 +175,8 @@ CREATE TABLE {$table_send_log} (
   KEY idx_reason_code (reason_code),
   KEY idx_delivery_uuid (delivery_uuid),
 
-  UNIQUE KEY uniq_delivery_ok (delivery_uuid, final_flag, final_status)
+  UNIQUE KEY uniq_delivery_ok (delivery_uuid, final_flag, final_status),
+  UNIQUE KEY uniq_lead_partner_attempt (lead_id, partner_id, attempt_no)
 ) ENGINE=InnoDB {$charset_collate};
 ";
     dbDelta($sql);

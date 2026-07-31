@@ -746,9 +746,16 @@ class LeadRouter_Flow
 
         do_action('leadrouter_before_log_attempt', $lead_id, $partner_id, $status, $extra, $data);
 
-        $ok = $wpdb->insert($table, $data, $format);
+        // INSERT IGNORE: при дублі (гонка ретраїв) тихо відкидаємо, перша вставка вважається канонічною
+        $columns  = implode(', ', array_keys($data));
+        $prepared = $wpdb->prepare(
+            'INSERT IGNORE INTO ' . $table . ' (' . $columns . ') VALUES ('
+            . implode(', ', $format) . ')',
+            array_values($data)
+        );
+        $ok = $wpdb->query($prepared);
 
-        if (!$ok) {
+        if ($ok === false) {
             $err = new WP_Error('leadrouter_flow_log_failed', 'Не вдалося записати лог', ['db_error' => $wpdb->last_error]);
             self::log('error', 'log_attempt insert failed', ['lead_id' => $lead_id, 'partner_id' => $partner_id, 'db_error' => $wpdb->last_error, 'data' => $data]);
 

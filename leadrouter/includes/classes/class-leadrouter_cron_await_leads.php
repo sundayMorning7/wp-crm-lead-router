@@ -97,51 +97,60 @@ if ( ! class_exists( 'LeadRouter_Cron_Await_Leads' ) ) {
 
             $table = $wpdb->prefix . 'leadrouter_leads';
 
-            // 1) беремо один лід зі статусом await
+            // 1) Вибираємо один лід зі статусом await
             $lead = $wpdb->get_row(
                 $wpdb->prepare(
                     "SELECT * FROM {$table}
-         WHERE status = %s AND id > %d
-         ORDER BY created_at ASC
-         LIMIT 1",
+                     WHERE status = %s AND id > %d
+                     ORDER BY created_at ASC
+                     LIMIT 1",
                     self::STATUS_AWAIT,
                     self::STATUS_START_ID
                 ),
                 ARRAY_A
             );
 
-/*
-            file_put_contents(
-                'test3',
-                'after db'. json_encode($lead, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
-                FILE_APPEND
-            );
-*/
-
-            if ( ! $lead ) {
+            if (!$lead) {
                 // немає лідів в await → обнуляємо таймер, щоб при появі нових все починалось з нуля
-                update_option( self::OPTION_NEXT_TS, 0 );
-                delete_transient( self::LOCK_KEY );
+                update_option(self::OPTION_NEXT_TS, 0);
+                delete_transient(self::LOCK_KEY);
                 return;
             }
 
-            $lead_id = (int) $lead['id'];
+            $lead_id = (int)$lead['id'];
 
-            // Проверка: если имя начинается с 'test', не отправлять лид партнёрам
+            // 2) Атомарне захоплення: перехід await → processing_awaitcron
+            $now_est = (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('Y-m-d H:i:s');
+            $claimed = $wpdb->query(
+                $wpdb->prepare(
+                    "UPDATE {$table} SET status = %s, status_updated_at = %s WHERE id = %d AND status = %s",
+                    'processing_awaitcron',
+                    $now_est,
+                    $lead_id,
+                    self::STATUS_AWAIT
+                )
+            );
+
+            if (!$claimed) {
+                // Лід вже захоплено іншим воркером
+                delete_transient(self::LOCK_KEY);
+                return;
+            }
+
+            // Перевірка тест-ліда
             $lead_name = isset($lead['name']) ? trim(strtolower($lead['name'])) : '';
             if (strpos($lead_name, 'test') === 0) {
-                // Просто помечаем как 'sent', не отправляем
                 $wpdb->update(
                     $table,
-                    [ 'status' => self::STATUS_OK ],
-                    [ 'id' => $lead_id ],
-                    [ '%s' ],
-                    [ '%d' ]
+                    ['status' => self::STATUS_OK, 'status_updated_at' => $now_est],
+                    ['id' => $lead_id],
+                    ['%s', '%s'],
+                    ['%d']
                 );
 
                 $log_file = WP_CONTENT_DIR . '/leadrouter-cron.log';
                 $log_payload = [
-                    'timestamp' => (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('Y-m-d H:i:s'),
+                    'timestamp' => $now_est,
                     'lead_id'   => $lead_id,
                     'result'    => 'Skipped test lead',
                 ];
@@ -155,16 +164,14 @@ if ( ! class_exists( 'LeadRouter_Cron_Await_Leads' ) ) {
                 return;
             }
 
-            // 2) відправка через Flow
-            $result = LeadRouter_Flow::dispatch_broadcast( $lead_id, [
-                'group_meta_key'   => '_leadrouter_partner_group',
-                'statuses'         => [ 'queued', 'sent', 'accepted' ],
-                'initial_status'   => 'sent',
-                'dispatch_method'  => 'auto_cron_await_lead',
-                'queue_if_closed'  => true,
-            ] );
-
-
+            // 3) Відправка через Flow
+            $result = LeadRouter_Flow::dispatch_broadcast($lead_id, [
+                'group_meta_key'  => '_leadrouter_partner_group',
+                'statuses'        => ['queued', 'sent', 'accepted'],
+                'initial_status'  => 'sent',
+                'dispatch_method' => 'auto_cron_await_lead',
+                'queue_if_closed' => true,
+            ]);
 
             $lead_status = $result['summary']['lead_status'] ?? 'error';
 
