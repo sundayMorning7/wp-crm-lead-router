@@ -1,5 +1,16 @@
 {
     "require": {
         "htmlburger/carbon-fields": "^3.6"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^8.5"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "LeadRouter\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
     }
 }
