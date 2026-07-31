@@ -96,6 +96,8 @@ Thumbs.db
 !docker-compose.yml
 !xdebug.ini
 !Dockerfile
+!.github
+!.github/**
 
 # track favicon files, if they exist
 !android-chrome-*.png
