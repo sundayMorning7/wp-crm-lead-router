@@ -502,9 +502,7 @@ if (!class_exists('LeadRouter_Sender_Light')) {
             $reason_code = $result['error_code'] ?? null;
             $retry_after = self::retry_after_seconds($resp_headers);
 
-            $attempted_at = current_time('mysql');
-// TODO Fix
-            //$attempted_at = (new \DateTimeImmutable('now', new \DateTimeZone('America/New_York')))->format('Y-m-d H:i:s');
+            $attempted_at = self::now_mysql_est();
 
             $data = [
                 'lead_id'          => $lead_id,
@@ -530,12 +528,18 @@ if (!class_exists('LeadRouter_Sender_Light')) {
                 '%d','%d','%d','%s','%d','%s','%s','%s','%s','%d','%s','%d','%s','%s','%d','%d','%s'
             ];
 
-            // Тихо ловимо помилки вставки, щоб не зламати відправку
+            // Використовуємо INSERT IGNORE для захисту від дублів при гонках/ретраях
+            // (UNIQUE KEY uniq_lead_partner_attempt забезпечує idempotency на рівні БД)
             try {
-                $wpdb->insert($table, $data, $formats);
+                $columns  = implode(', ', array_keys($data));
+                $prepared = $wpdb->prepare(
+                    'INSERT IGNORE INTO ' . $table . ' (' . $columns . ') VALUES ('
+                    . implode(', ', $formats) . ')',
+                    array_values($data)
+                );
+                $wpdb->query($prepared);
             } catch (\Throwable $e) {
-                // no-op; за потреби можеш кинути в error_log
-                // error_log('LeadRouter send_log insert failed: '.$e->getMessage());
+                // no-op; збій логування не повинен зупиняти відправку
             }
         }
 
@@ -692,6 +696,11 @@ if (!class_exists('LeadRouter_Sender_Light')) {
                 }
             }
             return null;
+        }
+
+        protected static function now_mysql_est(): string {
+            $tz = new \DateTimeZone('America/New_York');
+            return (new \DateTimeImmutable('now', $tz))->format('Y-m-d H:i:s');
         }
 
 

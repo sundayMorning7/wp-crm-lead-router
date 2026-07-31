@@ -49,7 +49,7 @@ if (!class_exists('LeadRouter_Cron_New_Leads')) {
 
             $table = $wpdb->prefix . 'leadrouter_leads';
 
-            // 1) беремо рівно один lead зі статусом new
+            // 1) Вибираємо один лід зі статусом new
             $lead = $wpdb->get_row(
                 $wpdb->prepare(
                     "SELECT * FROM {$table}
@@ -63,7 +63,6 @@ if (!class_exists('LeadRouter_Cron_New_Leads')) {
                 ARRAY_A
             );
 
-
             if (!$lead) {
                 delete_transient(self::LOCK_KEY);
                 return;
@@ -71,21 +70,39 @@ if (!class_exists('LeadRouter_Cron_New_Leads')) {
 
             $lead_id = (int)$lead['id'];
 
-            // Проверка: если имя начинается с 'test', не отправлять лид партнёрам
+            // 2) Атомарне захоплення: UPDATE WHERE id=X AND status='new'
+            //    Захищає від гонки, якщо два воркери запустились одночасно
+            $now_est = (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('Y-m-d H:i:s');
+            $claimed = $wpdb->query(
+                $wpdb->prepare(
+                    "UPDATE {$table} SET status = %s, status_updated_at = %s WHERE id = %d AND status = %s",
+                    self::STATUS_BUSY,
+                    $now_est,
+                    $lead_id,
+                    self::STATUS_NEW
+                )
+            );
+
+            if (!$claimed) {
+                // Лід вже захоплено іншим воркером
+                delete_transient(self::LOCK_KEY);
+                return;
+            }
+
+            // Перевірка: якщо ім'я починається з 'test' — не відправляємо партнерам
             $lead_name = isset($lead['name']) ? trim(strtolower($lead['name'])) : '';
             if (strpos($lead_name, 'test') === 0) {
-                // Просто помечаем как 'sent', не отправляем
                 $wpdb->update(
                     $table,
-                    [ 'status' => self::STATUS_OK ],
-                    [ 'id' => $lead_id ],
-                    [ '%s' ],
-                    [ '%d' ]
+                    ['status' => self::STATUS_OK, 'status_updated_at' => $now_est],
+                    ['id' => $lead_id],
+                    ['%s', '%s'],
+                    ['%d']
                 );
 
                 $log_file = WP_CONTENT_DIR . '/leadrouter-cron.log';
                 $log_payload = [
-                    'timestamp' => current_time('mysql'),
+                    'timestamp' => $now_est,
                     'lead_id'   => $lead_id,
                     'result'    => 'Skipped test lead',
                 ];
@@ -99,27 +116,14 @@ if (!class_exists('LeadRouter_Cron_New_Leads')) {
                 return;
             }
 
-           // 2) відмічаємо, що його вже обробляємо
-
-
-            $wpdb->update(
-                $table,
-                ['status' => self::STATUS_BUSY],
-                ['id' => $lead_id],
-                ['%s'],
-                ['%d']
-            );
-
             // 3) Відправка через Flow
-            $result = LeadRouter_Flow::dispatch_broadcast( $lead_id, [
-                'group_meta_key'   => '_leadrouter_partner_group',
-                'statuses'         => ['queued', 'sent', 'accepted'],
-                'initial_status'   => 'sent',
-                'dispatch_method'  => 'auto_cron_new_lead',
-                'queue_if_closed'  => true,
+            LeadRouter_Flow::dispatch_broadcast($lead_id, [
+                'group_meta_key'  => '_leadrouter_partner_group',
+                'statuses'        => ['queued', 'sent', 'accepted'],
+                'initial_status'  => 'sent',
+                'dispatch_method' => 'auto_cron_new_lead',
+                'queue_if_closed' => true,
             ]);
-
-
 
             delete_transient(self::LOCK_KEY);
         }

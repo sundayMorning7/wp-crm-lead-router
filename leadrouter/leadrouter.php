@@ -3,7 +3,7 @@
  * Plugin Name: LeadRouter by Maks Devda
  * Plugin URI: https://example.com/leadrouter
  * Description: Розподіл лідів між партнерами за групами з логами та адмін-інтерфейсом.
- * Version: 1.7.2
+ * Version: 1.7.4
  * Author: Maks Devda
  * Author URI: https://example.com
  * License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 }
 
 
-define('LEADROUTER_VERSION', '1.7.2');
+define('LEADROUTER_VERSION', '1.7.4');
 define('LEADROUTER_PLUGIN_FILE', __FILE__);
 define('LEADROUTER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('LEADROUTER_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -45,6 +45,7 @@ require_once LEADROUTER_PLUGIN_DIR . 'includes/leadrouter-main.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/helpers.php';
 
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-hooks.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-state-filter.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_dispatcher_eff.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-partners.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_sender_light.php';
@@ -52,6 +53,7 @@ require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-flow.php
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_cron_new_leads.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_cron_await_leads.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_cron_error_leads.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_cron_watchdog.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-billing-db.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-billing.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-stripe.php';
@@ -173,7 +175,8 @@ CREATE TABLE {$table_send_log} (
   KEY idx_reason_code (reason_code),
   KEY idx_delivery_uuid (delivery_uuid),
 
-  UNIQUE KEY uniq_delivery_ok (delivery_uuid, final_flag, final_status)
+  UNIQUE KEY uniq_delivery_ok (delivery_uuid, final_flag, final_status),
+  UNIQUE KEY uniq_lead_partner_attempt (lead_id, partner_id, attempt_no)
 ) ENGINE=InnoDB {$charset_collate};
 ";
     dbDelta($sql);
@@ -247,8 +250,9 @@ CREATE TABLE {$table_leads} (
   response_status VARCHAR(50) NOT NULL DEFAULT 'new',
   partner_id      BIGINT(20) UNSIGNED NULL,
 
-  -- життєвий цикл для кронів
+  -- życievий цикл для кронів
   status          VARCHAR(32)  NOT NULL DEFAULT 'new',
+  status_updated_at DATETIME NULL,
   attempts_total  INT UNSIGNED NOT NULL DEFAULT 0,
   next_attempt_at DATETIME NULL,
   last_error_code VARCHAR(64)  NOT NULL DEFAULT '',
@@ -261,7 +265,8 @@ CREATE TABLE {$table_leads} (
   PRIMARY KEY (id),
   KEY idx_partner_id   (partner_id),
   KEY idx_created_at   (created_at),
-  KEY idx_status_next  (status, next_attempt_at)
+  KEY idx_status_next  (status, next_attempt_at),
+  KEY idx_status_updated (status, status_updated_at)
 ) {$charset_collate};
 ";
     dbDelta($sql);
@@ -412,6 +417,7 @@ LR_Complaints::register();
 LeadRouter_Cron_New_Leads::init();
 LeadRouter_Cron_Await_Leads::init();
 LeadRouter_Cron_Error_Leads::init();
+LeadRouter_Cron_Watchdog::init();
 LR_Billing_Cron::register();
 
 // Stripe-вебхуки: POST /wp-json/leadrouter/v1/stripe-webhook (захист — підпис Stripe)

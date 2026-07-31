@@ -112,6 +112,11 @@ class LR_Complaints_Table extends WP_List_Table
         }
     }
 
+    public function no_items()
+    {
+        echo esc_html__('No complaints yet. Partner-reported issues will appear here automatically.', 'leadrouter');
+    }
+
     /** Партнер: назва + посилання на редагування CPT */
     protected function render_partner($item)
     {

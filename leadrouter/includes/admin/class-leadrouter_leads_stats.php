@@ -8,6 +8,7 @@ class LeadRouter_Leads_Stats {
         $args = self::read_filters_from_request();
         $stats = self::fetch($args);
 
+        self::render_operational_dashboard($stats['operational'] ?? []);
 
         self::render_group_weights_by_weekday();
 
@@ -59,6 +60,7 @@ class LeadRouter_Leads_Stats {
         global $wpdb;
         $logs_table   = $wpdb->prefix . 'leadrouter_logs';
         $groups_table = $wpdb->prefix . 'leadrouter_groups'; // у тебе: w4pMd_leadrouter_groups
+        $leads_table  = $wpdb->prefix . 'leadrouter_leads';
 
         $date_from  = $args['date_from'];
         $date_to    = $args['date_to'];
@@ -237,13 +239,168 @@ class LeadRouter_Leads_Stats {
         // ---- Побудова півот-матриць ----
         $pivot_groups   = self::build_pivot_matrix($by_day_groups_rows, 'group_id', $group_columns);
         $pivot_partners = self::build_pivot_matrix($by_day_partners_rows, 'partner_id', $partner_columns);
+        $operational    = self::fetch_operational_dashboard_stats(
+            $leads_table,
+            $groups_table,
+            $by_day_groups_rows,
+            $by_day_partners_rows
+        );
 
         return [
             'by_day_new_leads' => $by_day_new_leads,
             'by_day_totals'    => $by_day_totals,
             'pivot_groups'     => $pivot_groups,     // ['days'=>[], 'columns'=>[id=>title], 'matrix'=>[day][id]=>int]
             'pivot_partners'   => $pivot_partners,   // ['days'=>[], 'columns'=>[id=>title], 'matrix'=>[day][id]=>int]
+            'operational'      => $operational,
         ];
+    }
+
+    protected static function fetch_operational_dashboard_stats(
+        string $leads_table,
+        string $groups_table,
+        array $by_day_groups_rows,
+        array $by_day_partners_rows
+    ): array {
+        global $wpdb;
+
+        $status_rows = $wpdb->get_results(
+            "SELECT status, COUNT(*) AS cnt FROM {$leads_table} GROUP BY status",
+            ARRAY_A
+        ) ?: [];
+
+        $funnel = [];
+        $total_leads = 0;
+        foreach ($status_rows as $row) {
+            $status = (string)($row['status'] ?? '');
+            $count = (int)($row['cnt'] ?? 0);
+            $funnel[$status] = $count;
+            $total_leads += $count;
+        }
+
+        $sent_leads = (int)($funnel['sent'] ?? 0);
+        $sent_conversion = $total_leads > 0 ? round(($sent_leads / $total_leads) * 100, 2) : 0.0;
+
+        $group_load = [];
+        foreach ($by_day_groups_rows as $row) {
+            $group_id = (int)($row['group_id'] ?? 0);
+            if ($group_id <= 0) {
+                continue;
+            }
+            $group_load[$group_id] = ($group_load[$group_id] ?? 0) + (int)($row['assignments'] ?? 0);
+        }
+
+        $group_id_to_post = [];
+        if (!empty($group_load)) {
+            $group_ids = array_keys($group_load);
+            $placeholders = implode(',', array_fill(0, count($group_ids), '%d'));
+            $map_rows = $wpdb->get_results(
+                $wpdb->prepare("SELECT id, post_id FROM {$groups_table} WHERE id IN ($placeholders)", $group_ids),
+                ARRAY_A
+            ) ?: [];
+            foreach ($map_rows as $map_row) {
+                $group_id_to_post[(int)$map_row['id']] = (int)$map_row['post_id'];
+            }
+        }
+
+        $group_rows = [];
+        foreach ($group_load as $group_id => $assignments) {
+            $post_id = (int)($group_id_to_post[$group_id] ?? 0);
+            $title = $post_id > 0 ? (get_the_title($post_id) ?: ('#' . $group_id)) : ('#' . $group_id);
+            $group_rows[] = [
+                'title' => $title,
+                'assignments' => (int)$assignments,
+            ];
+        }
+
+        $partner_load = [];
+        foreach ($by_day_partners_rows as $row) {
+            $partner_id = (int)($row['partner_id'] ?? 0);
+            if ($partner_id <= 0) {
+                continue;
+            }
+            $partner_load[$partner_id] = ($partner_load[$partner_id] ?? 0) + (int)($row['assignments'] ?? 0);
+        }
+
+        $partner_rows = [];
+        foreach ($partner_load as $partner_id => $assignments) {
+            $partner_rows[] = [
+                'title' => get_the_title($partner_id) ?: ('#' . $partner_id),
+                'assignments' => (int)$assignments,
+            ];
+        }
+
+        usort($group_rows, static function($a, $b) {
+            return (int)$b['assignments'] <=> (int)$a['assignments'];
+        });
+        usort($partner_rows, static function($a, $b) {
+            return (int)$b['assignments'] <=> (int)$a['assignments'];
+        });
+
+        return [
+            'funnel' => $funnel,
+            'total_leads' => $total_leads,
+            'sent_leads' => $sent_leads,
+            'sent_conversion' => $sent_conversion,
+            'group_load' => $group_rows,
+            'partner_load' => $partner_rows,
+        ];
+    }
+
+    protected static function render_operational_dashboard(array $operational): void
+    {
+        $funnel = is_array($operational['funnel'] ?? null) ? $operational['funnel'] : [];
+        $group_load = is_array($operational['group_load'] ?? null) ? $operational['group_load'] : [];
+        $partner_load = is_array($operational['partner_load'] ?? null) ? $operational['partner_load'] : [];
+        $total = (int)($operational['total_leads'] ?? 0);
+        $sent = (int)($operational['sent_leads'] ?? 0);
+        $conversion = (float)($operational['sent_conversion'] ?? 0.0);
+
+        echo '<div class="leadrouter-card" style="margin-top:20px">';
+        echo '<h2 style="margin:0 0 10px">' . esc_html__('Операційний дашборд', 'leadrouter') . '</h2>';
+        echo '<p style="margin:0 0 14px"><strong>' . esc_html__('Sent conversion', 'leadrouter') . ':</strong> '
+            . esc_html(number_format($conversion, 2)) . '%'
+            . ' (' . (int)$sent . '/' . (int)$total . ')</p>';
+
+        echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">';
+
+        echo '<div><h3 style="margin:0 0 8px">' . esc_html__('Воронка статусів', 'leadrouter') . '</h3>';
+        echo '<table class="widefat striped"><thead><tr><th>' . esc_html__('Статус', 'leadrouter') . '</th><th>'
+            . esc_html__('К-сть', 'leadrouter') . '</th></tr></thead><tbody>';
+        if (!empty($funnel)) {
+            foreach ($funnel as $status => $count) {
+                $label = $status !== '' ? $status : '—';
+                echo '<tr><td>' . esc_html($label) . '</td><td>' . (int)$count . '</td></tr>';
+            }
+        } else {
+            echo '<tr><td colspan="2">' . esc_html__('Немає даних', 'leadrouter') . '</td></tr>';
+        }
+        echo '</tbody></table></div>';
+
+        echo '<div><h3 style="margin:0 0 8px">' . esc_html__('Навантаження по групах', 'leadrouter') . '</h3>';
+        echo '<table class="widefat striped"><thead><tr><th>' . esc_html__('Група', 'leadrouter') . '</th><th>'
+            . esc_html__('Призначень', 'leadrouter') . '</th></tr></thead><tbody>';
+        if (!empty($group_load)) {
+            foreach ($group_load as $row) {
+                echo '<tr><td>' . esc_html((string)$row['title']) . '</td><td>' . (int)$row['assignments'] . '</td></tr>';
+            }
+        } else {
+            echo '<tr><td colspan="2">' . esc_html__('Немає даних', 'leadrouter') . '</td></tr>';
+        }
+        echo '</tbody></table></div>';
+
+        echo '<div><h3 style="margin:0 0 8px">' . esc_html__('Навантаження по партнерах', 'leadrouter') . '</h3>';
+        echo '<table class="widefat striped"><thead><tr><th>' . esc_html__('Партнер', 'leadrouter') . '</th><th>'
+            . esc_html__('Призначень', 'leadrouter') . '</th></tr></thead><tbody>';
+        if (!empty($partner_load)) {
+            foreach ($partner_load as $row) {
+                echo '<tr><td>' . esc_html((string)$row['title']) . '</td><td>' . (int)$row['assignments'] . '</td></tr>';
+            }
+        } else {
+            echo '<tr><td colspan="2">' . esc_html__('Немає даних', 'leadrouter') . '</td></tr>';
+        }
+        echo '</tbody></table></div>';
+        echo '</div>';
+        echo '</div>';
     }
 
     /** Побудова півот-матриці: rows = дні, cols = entity_id (group/partner), values = assignments */

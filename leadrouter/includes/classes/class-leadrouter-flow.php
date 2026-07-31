@@ -135,17 +135,11 @@ class LeadRouter_Flow
 
             do_action('leadrouter_after_dispatch', $lead_id, $opts, $group);
 
+            $isExcludedState = LeadRouter_State_Filter::is_excluded_state(
+                (string)($opts['lead_from_state'] ?? ''),
+                (string)($opts['lead_to_state'] ?? '')
+            );
 
-            // TODO Дурна логіка відслідковування гаваїв аляски - багато дублюючих перевірок, треба переробити архітектуру
-
-
-            $from_state = strtoupper(trim((string)($opts['lead_from_state'] ?? '')));
-            $to_state = strtoupper(trim((string)($opts['lead_to_state'] ?? '')));
-            $excluded = ['AK', 'HI'];
-            $isExcludedState = in_array($from_state, $excluded, true) || in_array($to_state, $excluded, true);
-
-
-            // КРОК 6. Оновлення eff — тільки якщо НЕ AK/HI
             if (!$isExcludedState) {
                 self::mark_lead_status($lead_id, 'await', [
                     'reason' => 'no_group_for_lead',
@@ -157,7 +151,6 @@ class LeadRouter_Flow
                     'error_msg' => $group->get_error_message(),
                 ]);
             }
-
 
             return $group;
         }
@@ -232,11 +225,8 @@ class LeadRouter_Flow
 
             $p['group_post_id'] = $group_post_id;
 
-
-            // TODO подвійне логування
             // 🧰 Фільтрація партнера — якщо причина повернеться, партнер пропускається
-            $reason = self::filter_partner($p); // тут має перевіряти і from_state, і to_state
-
+            $reason = self::filter_partner($p); // перевіряє активність, from_state та to_state
 
             if ($reason) {
                 $log_id = self::log_attempt($lead_id, $pid, 'skipped', [
@@ -254,30 +244,6 @@ class LeadRouter_Flow
                     'status' => 'skipped',
                     'log_id' => is_wp_error($log_id) ? 0 : (int)$log_id,
                     'error' => $reason
-                ];
-                $results['all'][] = end($results['failed']);
-                continue;
-            }
-
-            // 🕒 Закритий або без ліміту — просто пропускаємо (без постановки в чергу)
-            if ((empty($p['open_now']) || (int)$p['limit_left'] <= 0) && ($opts['dispatch_method'] != 'manual_bulk') && $opts['dispatch_method'] != 'auto_cron_error_lead') {
-                $err_code = empty($p['open_now']) ? 'partner_closed' : 'limit_exceeded';
-                $log_id = self::log_attempt($lead_id, $pid, 'skipped', [
-                    'group_post_id' => $group_post_id,
-                    'group_name' => $group_name,
-                    'dispatch_method' => $dispatch_method,
-                    'meta' => self::compact_partner_meta($p),
-                    'error_code' => $err_code,
-                    'is_skipped' => 1,
-                    'lead_from_state' => $lead_from_state,
-                    'lead_to_state' => $lead_to_state,
-                ]);
-                $results['failed'][] = [
-                    'partner_id' => $pid,
-                    'partner_name' => $pname,
-                    'status' => 'skipped',
-                    'log_id' => is_wp_error($log_id) ? 0 : (int)$log_id,
-                    'error' => $err_code
                 ];
                 $results['all'][] = end($results['failed']);
                 continue;
@@ -351,13 +317,10 @@ class LeadRouter_Flow
                 // ✅ Є хоча б один успішний партнер → processed
                 self::mark_lead_status($lead_id, 'sent', []);
 
-                error_log('update_sent_summary before: lead_id=' . $lead_id);
                 // 🧾 Оновлюємо sent_summary_json у таблиці лідів
                 if (class_exists('LeadRouter_Leads')) {
                     $partners_summary = [];
 
-
-                    error_log('update_sent_summary start: lead_id=' . $lead_id);
                     foreach ($results['sent'] as $row) {
                         $partners_summary[] = [
                             'partner_id' => (int)($row['partner_id'] ?? 0),
@@ -372,8 +335,22 @@ class LeadRouter_Flow
                     }
                 }
             } elseif ($cnt_attempted === 0) {
-                // 🕒 Жодної спроби → всі пропущені → await
-                self::mark_lead_status($lead_id, 'state_error', ['reason' => 'no_attempts_all_skipped']);
+                // 🕒 Жодної спроби → всі пропущені:
+                // - state_error лише коли всі пропуски через state_filter_fail (AK/HI)
+                // - в інших випадках await
+                $only_state_filter_fail = true;
+                foreach ($results['all'] as $entry) {
+                    if (($entry['status'] ?? '') !== 'skipped' || ($entry['error'] ?? '') !== 'state_filter_fail') {
+                        $only_state_filter_fail = false;
+                        break;
+                    }
+                }
+
+                if ($only_state_filter_fail) {
+                    self::mark_lead_status($lead_id, 'state_error', ['reason' => 'state_filter_fail']);
+                } else {
+                    self::mark_lead_status($lead_id, 'await', ['reason' => 'no_attempts_all_skipped']);
+                }
             } else {
                 // ❌ Були спроби → всі впали → error
                 self::mark_lead_status($lead_id, 'error', [
@@ -454,25 +431,15 @@ class LeadRouter_Flow
         $pid = (int)($p['partner_id'] ?? 0);
 
         // ⛔ Якщо партнер вимкнений — пропускаємо
-        $active = (int)get_post_meta($pid, '_leadrouter_partner_active', true);
-        if ($active === 0) return 'deactivated_partner';
+        $active_raw = get_post_meta($pid, '_leadrouter_partner_active', true);
+        $is_active = ($active_raw === '' || $active_raw === null) ? true : ((string)$active_raw === '1');
+        if (!$is_active) return 'deactivated_partner';
 
         // 📍 Обмеження по штатах Alaska / Hawaii
-        $from_state = strtoupper(trim((string)($p['lead_from_state'] ?? '')));
-        $to_state = strtoupper(trim((string)($p['lead_to_state'] ?? '')));
+        $from_state = (string)($p['lead_from_state'] ?? '');
+        $to_state   = (string)($p['lead_to_state'] ?? '');
 
-        $allowAK = get_post_meta($pid, '_leadrouter_partner_allow_alaska', true);
-        $allowHI = get_post_meta($pid, '_leadrouter_partner_allow_hawaii', true);
-
-        if (
-            ($from_state === 'AK' || $to_state === 'AK') && !$allowAK
-        ) {
-            return 'state_filter_fail';
-        }
-
-        if (
-            ($from_state === 'HI' || $to_state === 'HI') && !$allowHI
-        ) {
+        if (!LeadRouter_State_Filter::partner_allows($pid, $from_state, $to_state)) {
             return 'state_filter_fail';
         }
 
@@ -779,9 +746,16 @@ class LeadRouter_Flow
 
         do_action('leadrouter_before_log_attempt', $lead_id, $partner_id, $status, $extra, $data);
 
-        $ok = $wpdb->insert($table, $data, $format);
+        // INSERT IGNORE: при дублі (гонка ретраїв) тихо відкидаємо, перша вставка вважається канонічною
+        $columns  = implode(', ', array_keys($data));
+        $prepared = $wpdb->prepare(
+            'INSERT IGNORE INTO ' . $table . ' (' . $columns . ') VALUES ('
+            . implode(', ', $format) . ')',
+            array_values($data)
+        );
+        $ok = $wpdb->query($prepared);
 
-        if (!$ok) {
+        if ($ok === false) {
             $err = new WP_Error('leadrouter_flow_log_failed', 'Не вдалося записати лог', ['db_error' => $wpdb->last_error]);
             self::log('error', 'log_attempt insert failed', ['lead_id' => $lead_id, 'partner_id' => $partner_id, 'db_error' => $wpdb->last_error, 'data' => $data]);
 
@@ -857,20 +831,20 @@ class LeadRouter_Flow
         // $allowed = ['new','await','processed','error','sent'];
         // if (!in_array($status, $allowed, true)) { $status = 'error'; }
 
-        // оновлюємо статус у leads
+        // оновлюємо статус у leads (+ фіксуємо час зміни для watchdog)
+        $now = self::now_mysql_est();
         $wpdb->update(
             $table,
-            ['response_status' => $status, 'status' => $status],
+            ['response_status' => $status, 'status' => $status, 'status_updated_at' => $now],
             ['id' => $lead_id],
-            ['%s'],
+            ['%s', '%s', '%s'],
             ['%d']
         );
-
 
         if ($status === 'sent') {
             $wpdb->update(
                 $table,
-                ['sent_at' => self::now_mysql_est()],
+                ['sent_at' => $now],
                 ['id' => $lead_id],
                 ['%s'],
                 ['%d']

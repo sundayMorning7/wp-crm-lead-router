@@ -21,6 +21,8 @@ add_filter('manage_leadrouter_partner_posts_columns', function($columns) {
         if ($key === 'title') {
             $new['lr_partner_status']  = __('Статус', 'leadrouter');
             $new['lr_partner_balance'] = __('Баланс', 'leadrouter');
+            $new['lr_partner_group'] = __('Група', 'leadrouter');
+            $new['lr_partner_integration_type'] = __('Тип інтеграції', 'leadrouter');
         }
     }
     // Фолбек: якщо колонки title немає — додаємо в кінець
@@ -29,6 +31,12 @@ add_filter('manage_leadrouter_partner_posts_columns', function($columns) {
     }
     if (!isset($new['lr_partner_balance'])) {
         $new['lr_partner_balance'] = __('Баланс', 'leadrouter');
+    }
+    if (!isset($new['lr_partner_group'])) {
+        $new['lr_partner_group'] = __('Група', 'leadrouter');
+    }
+    if (!isset($new['lr_partner_integration_type'])) {
+        $new['lr_partner_integration_type'] = __('Тип інтеграції', 'leadrouter');
     }
     return $new;
 });
@@ -98,6 +106,29 @@ add_action('manage_leadrouter_partner_posts_custom_column', function($column, $p
         . esc_html(number_format($balance, 2) . ' ' . $currency) . '</strong>';
 }, 10, 2);
 
+add_action('manage_leadrouter_partner_posts_custom_column', function($column, $post_id) {
+    if ($column === 'lr_partner_group') {
+        $group_post_id = (int) get_post_meta($post_id, '_leadrouter_partner_group', true);
+        if ($group_post_id > 0) {
+            $title = get_the_title($group_post_id);
+            if ($title !== '') {
+                echo esc_html($title);
+                return;
+            }
+            echo '#' . (int) $group_post_id;
+            return;
+        }
+        echo '<span style="color:#787c82;">—</span>';
+        return;
+    }
+
+    if ($column === 'lr_partner_integration_type') {
+        $type = (string) get_post_meta($post_id, '_leadrouter_partner_type', true);
+        $type = strtolower(trim($type));
+        echo esc_html($type === 'email' ? 'email' : 'api');
+    }
+}, 10, 2);
+
 // Подключаем JS для обработки клика по кнопке
 add_action('admin_enqueue_scripts', function($hook) {
     global $typenow;
@@ -107,6 +138,65 @@ add_action('admin_enqueue_scripts', function($hook) {
         wp_localize_script('lr-send-test-lead-js', 'LRAjax', [
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('lr_send_test_lead'),
+        ]);
+    }
+});
+
+// Фільтр у списку партнерів: швидкий відбір Active / Inactive.
+add_action('restrict_manage_posts', function($post_type) {
+    if ($post_type !== 'leadrouter_partner') {
+        return;
+    }
+
+    $current = isset($_GET['lr_partner_active_filter'])
+        ? sanitize_key(wp_unslash($_GET['lr_partner_active_filter']))
+        : '';
+
+    echo '<select name="lr_partner_active_filter" style="margin-left:6px;">';
+    echo '<option value="">' . esc_html__('All partner statuses', 'leadrouter') . '</option>';
+    echo '<option value="active" ' . selected($current, 'active', false) . '>' . esc_html__('Only active', 'leadrouter') . '</option>';
+    echo '<option value="inactive" ' . selected($current, 'inactive', false) . '>' . esc_html__('Only inactive', 'leadrouter') . '</option>';
+    echo '</select>';
+}, 10, 1);
+
+add_action('pre_get_posts', function($query) {
+    if (!is_admin() || !$query instanceof WP_Query || !$query->is_main_query()) {
+        return;
+    }
+
+    $post_type = (string)$query->get('post_type');
+    if ($post_type !== 'leadrouter_partner') {
+        return;
+    }
+
+    $filter = isset($_GET['lr_partner_active_filter'])
+        ? sanitize_key(wp_unslash($_GET['lr_partner_active_filter']))
+        : '';
+
+    if ($filter === 'active') {
+        $query->set('meta_query', [
+            'relation' => 'OR',
+            [
+                'key'   => '_leadrouter_partner_active',
+                'value' => '1',
+            ],
+            [
+                'key'     => '_leadrouter_partner_active',
+                'compare' => 'NOT EXISTS',
+            ],
+        ]);
+    } elseif ($filter === 'inactive') {
+        $query->set('meta_query', [
+            'relation' => 'AND',
+            [
+                'key'     => '_leadrouter_partner_active',
+                'value'   => '1',
+                'compare' => '!=',
+            ],
+            [
+                'key'     => '_leadrouter_partner_active',
+                'compare' => 'EXISTS',
+            ],
         ]);
     }
 });
@@ -157,5 +247,23 @@ add_action('wp_ajax_lr_send_test_lead', function() {
         'timeout'      => 20,
         'lead_id'      => $lead_id,
     ]);
-    wp_send_json_success(['result' => $result, 'lead_id' => $lead_id]);
+
+    $send_result = (is_array($result) && isset($result['result']) && is_array($result['result'])) ? $result['result'] : [];
+    $send_resp   = (is_array($result) && isset($result['resp']) && is_array($result['resp'])) ? $result['resp'] : [];
+
+    $http_code = null;
+    if (isset($send_result['status_code'])) {
+        $http_code = (int)$send_result['status_code'];
+    } elseif (isset($send_resp['status_code'])) {
+        $http_code = (int)$send_resp['status_code'];
+    }
+
+    wp_send_json_success([
+        'lead_id'       => $lead_id,
+        'ok'            => !empty($send_result['success']),
+        'status_code'   => $http_code,
+        'error_code'    => (string)($send_result['error_code'] ?? ''),
+        'error_message' => (string)($send_result['error_message'] ?? ''),
+        'result'        => $result,
+    ]);
 });

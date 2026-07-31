@@ -39,11 +39,13 @@ function leadrouter_log_assignment( $lead_id, $partner_id, $group_id, $status = 
     global $wpdb;
     $table = $wpdb->prefix . 'leadrouter_logs';
 
+    $now_est = (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('Y-m-d H:i:s');
+
     $wpdb->insert( $table, [
         'lead_id'     => intval($lead_id),
         'partner_id'  => intval($partner_id),
         'group_id'    => intval($group_id),
-        'assigned_at' => current_time('mysql'),
+        'assigned_at' => $now_est,
         'status'      => sanitize_text_field($status),
     ], [ '%d','%d','%d','%s','%s' ] );
 }

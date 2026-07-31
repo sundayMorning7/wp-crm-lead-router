@@ -551,6 +551,78 @@ jQuery(function ($) {
 
     });
 
+    $(document).on('click', '.lr-bulk-status-btn', function () {
+
+        var $btn = $(this);
+        var $wrap = $btn.closest('.lr-bulk-send');
+        var $status = $wrap.find('.lr-bulk-status');
+        var statusVal = String($wrap.find('.lr-bulk-status-select').val() || '').trim();
+        var statusLabel = $wrap.find('.lr-bulk-status-select option:selected').text() || statusVal;
+
+        var leadIds = [];
+        $('input.lr-lead-cb:checked').each(function () {
+            var v = parseInt($(this).val(), 10);
+            if (v) leadIds.push(v);
+        });
+
+        if (!leadIds.length) {
+            $status.text('No leads selected');
+            return;
+        }
+        if (!statusVal) {
+            $status.text('Choose status');
+            return;
+        }
+
+        if (!window.confirm('Change status to "' + statusLabel + '" for ' + leadIds.length + ' lead(s)?')) {
+            return;
+        }
+
+        leadIds.forEach(function (id) { lrShowRowLoader(id); });
+
+        $btn.prop('disabled', true);
+        $wrap.find('.lr-bulk-status-select').prop('disabled', true);
+        $status.text('Updating ' + leadIds.length + '…');
+
+        $.ajax({
+            url: (window.LeadRouterLogViewer && LeadRouterLogViewer.ajaxUrl) ? LeadRouterLogViewer.ajaxUrl : ajaxurl,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                action: (window.LeadRouterLogViewer && LeadRouterLogViewer.bulkStatusUpdateAction) ? LeadRouterLogViewer.bulkStatusUpdateAction : 'leadrouter_bulk_update_status',
+                nonce: (window.LeadRouterLogViewer && LeadRouterLogViewer.nonce) ? LeadRouterLogViewer.nonce : '',
+                status: statusVal,
+                lead_ids: leadIds
+            }
+        }).done(function (resp) {
+            if (!resp || !resp.success) {
+                var msg = (resp && resp.data && resp.data.message) ? resp.data.message : 'Failed';
+                $status.text('Error: ' + msg);
+                return;
+            }
+
+            var rowsHtml = (resp.data && resp.data.rows_html) ? resp.data.rows_html : {};
+            var updated = (resp.data && typeof resp.data.updated !== 'undefined') ? parseInt(resp.data.updated, 10) : 0;
+            var failed = (resp.data && typeof resp.data.failed !== 'undefined') ? parseInt(resp.data.failed, 10) : 0;
+
+            leadIds.forEach(function (id) {
+                if (rowsHtml[id]) {
+                    $('#leadrow-' + id).replaceWith(rowsHtml[id]);
+                }
+            });
+
+            $status.text('Done. Updated: ' + updated + ', Failed: ' + failed);
+            $('input.lr-lead-cb').prop('checked', false);
+            $('.wp-list-table thead input[type="checkbox"], .wp-list-table tfoot input[type="checkbox"]').prop('checked', false);
+        }).fail(function () {
+            $status.text('Error');
+        }).always(function () {
+            $btn.prop('disabled', false);
+            $wrap.find('.lr-bulk-status-select').prop('disabled', false);
+            leadIds.forEach(function (id) { lrHideRowLoader(id); });
+        });
+    });
+
     function lrShowRowLoader(leadId) {
         var $tr = $('#leadrow-' + leadId);
         if (!$tr.length) return null;
@@ -939,6 +1011,5 @@ jQuery(function ($) {
     });
 
 });
-
 
 
