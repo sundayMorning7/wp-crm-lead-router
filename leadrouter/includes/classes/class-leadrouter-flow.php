@@ -468,8 +468,9 @@ class LeadRouter_Flow
         $pid = (int)($p['partner_id'] ?? 0);
 
         // ⛔ Якщо партнер вимкнений — пропускаємо
-        $active = (int)get_post_meta($pid, '_leadrouter_partner_active', true);
-        if ($active === 0) return 'deactivated_partner';
+        $active_raw = get_post_meta($pid, '_leadrouter_partner_active', true);
+        $is_active = ($active_raw === '' || $active_raw === null) ? true : ((string)$active_raw === '1');
+        if (!$is_active) return 'deactivated_partner';
 
         // 📍 Обмеження по штатах Alaska / Hawaii
         $from_state = strtoupper(trim((string)($p['lead_from_state'] ?? '')));
