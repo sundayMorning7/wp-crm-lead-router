@@ -7,6 +7,12 @@
 
 define('ABSPATH', __DIR__ . '/../');
 define('WPINC', 'wp-includes');
+if (!defined('ARRAY_A')) {
+    define('ARRAY_A', 'ARRAY_A');
+}
+if (!defined('OBJECT')) {
+    define('OBJECT', 'OBJECT');
+}
 
 // ---------------------------------------------------------------------------
 // WP_Error stub
