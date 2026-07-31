@@ -1374,7 +1374,7 @@ class LeadRouter_Admin
 
         global $wpdb;
         $leads_table = $wpdb->prefix . 'leadrouter_leads';
-        $now = current_time('mysql');
+        $now = (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('Y-m-d H:i:s');
 
         $opts = [
             'group_meta_key' => '_leadrouter_partner_group',

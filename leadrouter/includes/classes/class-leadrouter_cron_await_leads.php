@@ -141,7 +141,7 @@ if ( ! class_exists( 'LeadRouter_Cron_Await_Leads' ) ) {
 
                 $log_file = WP_CONTENT_DIR . '/leadrouter-cron.log';
                 $log_payload = [
-                    'timestamp' => current_time('mysql'),
+                    'timestamp' => (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('Y-m-d H:i:s'),
                     'lead_id'   => $lead_id,
                     'result'    => 'Skipped test lead',
                 ];

@@ -113,7 +113,7 @@ function leadrouter_save_group_day_weights_by_post(int $post_id, array $days_wei
         'weight_5' => $days_weight[5],
         'weight_6' => $days_weight[6],
         'weight_7' => $days_weight[7],
-        'updated_at' => current_time('mysql'),
+        'updated_at' => (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('Y-m-d H:i:s'),
     ];
 
     if ($active !== null) {
