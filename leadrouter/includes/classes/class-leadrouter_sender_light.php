@@ -502,9 +502,7 @@ if (!class_exists('LeadRouter_Sender_Light')) {
             $reason_code = $result['error_code'] ?? null;
             $retry_after = self::retry_after_seconds($resp_headers);
 
-            $attempted_at = current_time('mysql');
-// TODO Fix
-            //$attempted_at = (new \DateTimeImmutable('now', new \DateTimeZone('America/New_York')))->format('Y-m-d H:i:s');
+            $attempted_at = self::now_mysql_est();
 
             $data = [
                 'lead_id'          => $lead_id,
@@ -692,6 +690,11 @@ if (!class_exists('LeadRouter_Sender_Light')) {
                 }
             }
             return null;
+        }
+
+        protected static function now_mysql_est(): string {
+            $tz = new \DateTimeZone('America/New_York');
+            return (new \DateTimeImmutable('now', $tz))->format('Y-m-d H:i:s');
         }
 
 
