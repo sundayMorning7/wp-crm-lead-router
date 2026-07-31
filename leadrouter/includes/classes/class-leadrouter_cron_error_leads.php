@@ -78,6 +78,21 @@ if ( ! class_exists( 'LeadRouter_Cron_Error_Leads' ) ) {
 
             $lead_id = (int) $lead['id'];
 
+            // Якщо це тестовий лід — не маршрутизуємо, просто закриваємо як sent
+            $lead_name = isset($lead['name']) ? trim(strtolower((string)$lead['name'])) : '';
+            if (strpos($lead_name, 'test') === 0) {
+                $wpdb->update(
+                    $table,
+                    [ 'status' => 'sent' ],
+                    [ 'id' => $lead_id ],
+                    [ '%s' ],
+                    [ '%d' ]
+                );
+
+                delete_transient( self::LOCK_KEY );
+                return;
+            }
+
             $result = LeadRouter_Flow::dispatch_broadcast( $lead_id, [
                 'group_meta_key'      => '_leadrouter_partner_group',
                 'statuses'            => [ 'queued', 'sent', 'accepted' ],
@@ -87,7 +102,9 @@ if ( ! class_exists( 'LeadRouter_Cron_Error_Leads' ) ) {
                 'force_group_post_id' => $force_group_post_id,
             ] );
 
-            $lead_status = $result['summary']['lead_status'] ?? 'error';
+            $lead_status = is_wp_error($result)
+                ? 'error'
+                : (($result['summary']['lead_status'] ?? 'error'));
 
 // якщо партнер не прийняв lead / endpoint лежить / dispatch зламався
             if ( in_array( $lead_status, [ 'error', 'skipped' ], true ) ) {
@@ -113,7 +130,7 @@ if ( ! class_exists( 'LeadRouter_Cron_Error_Leads' ) ) {
                         'lead_id'     => $lead_id,
                         'partner_id'  => 0,
                         'group_id'    => $force_group_post_id,
-                        'assigned_at' => current_time( 'mysql' ),
+                        'assigned_at' => self::now_mysql_est(),
                         'status'      => 'partner_down',
                     ],
                     [ '%d', '%d', '%d', '%s', '%s' ]
@@ -121,6 +138,11 @@ if ( ! class_exists( 'LeadRouter_Cron_Error_Leads' ) ) {
             }
 
             delete_transient( self::LOCK_KEY );
+        }
+
+        protected static function now_mysql_est(): string {
+            $tz = new \DateTimeZone('America/New_York');
+            return (new \DateTimeImmutable('now', $tz))->format('Y-m-d H:i:s');
         }
     }
 }
