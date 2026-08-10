@@ -1,30 +1,8 @@
 // Reserved for future admin scripts
 
-jQuery(function ($) {
-    $(document).on('click', '.lr-broadcast-btn', function (e) {
-        e.preventDefault();
-
-        const lead_id = $(this).data('id');
-        const $cell = $(this).closest('td');
-        const group_id = $cell.find('.lr-group-select').val() || 0;
-
-        if (!confirm('Відправити broadcast для lead #' + lead_id + ' (group_id=' + group_id + ')?')) {
-            return;
-        }
-
-        $.post(ajaxurl, {
-            action: 'leadrouter_manual_broadcast',
-            lead_id: lead_id,
-            group_id: group_id
-        }, function (resp) {
-            if (resp.success) {
-                alert('Broadcast OK: ' + resp.data);
-            } else {
-                alert('Помилка: ' + resp.data);
-            }
-        });
-    });
-});
+/* Легасі-обробник .lr-broadcast-btn видалено: він дублював confirm і слав
+ * запит без nonce (сервер його завжди відбивав). Робочий обробник — нижче,
+ * з підтримкою груп/партнерів і м'якими попередженнями. */
 
 
 (function () {
@@ -264,7 +242,7 @@ jQuery(function ($) {
                         $('.md-report-panel_result').slideUp(400, function () {
                             $(this)
                                 .html('')
-                                .append('<div class="md-report-panel_result_head"><h2>' + table_title + ' from ' + from_date_formated + ' to ' + to_date_formated + '</h2><a class="button" href="' + response.file_url_xlsx + '">Download file (.xlsx)</a><a class="button" href="' + response.file_url_csv + '">Download file (.csv)</a><a href="#" class="button js-md-empty-report-result">Clear & hide</a> </div>')
+                                .append('<div class="md-report-panel_result_head"><h2>' + table_title + ' from ' + from_date_formated + ' to ' + to_date_formated + '</h2><a class="button js-md-export" data-format="xlsx" data-filename="aggregate-report-' + from_date_formated + '_' + to_date_formated + '" href="#">Download file (.xlsx)</a><a class="button js-md-export" data-format="csv" data-filename="aggregate-report-' + from_date_formated + '_' + to_date_formated + '" href="#">Download file (.csv)</a><a href="#" class="button js-md-empty-report-result">Clear & hide</a> </div>')
                                 .append(table)
                                 .slideDown();
                         });
@@ -286,6 +264,25 @@ jQuery(function ($) {
         });
 
 
+    });
+
+    // Експорт згенерованої таблиці звіту прямо в браузері (ExcellentExport):
+    // сервер файли не генерує — кнопки конвертують уже відрендерену таблицю
+    $(document).on('click', '.js-md-export', function () {
+        if (typeof ExcellentExport === 'undefined') {
+            alert('Export library not loaded');
+            return false;
+        }
+        var table = $(this).closest('.md-report-panel_result').find('table').get(0);
+        if (!table) {
+            return false;
+        }
+        var format = $(this).data('format') === 'csv' ? 'csv' : 'xlsx';
+        var filename = String($(this).data('filename') || 'report').replace(/[^\w.-]+/g, '_');
+        return ExcellentExport.convert(
+            { anchor: this, filename: filename, format: format },
+            [{ name: 'Report', from: { table: table } }]
+        );
     });
 
 
@@ -416,7 +413,7 @@ jQuery(function ($) {
                         $('.md-report-panel_result').slideUp(400, function () {
                             $(this)
                                 .html('')
-                                .append('<div class="md-report-panel_result_head"><h2>' + table_title + ' from ' + from_date_formated + ' to ' + to_date_formated + '</h2><a class="button" href="' + response.file_url_xlsx + '">Download file (.xlsx)</a><a class="button" href="' + response.file_url_csv + '">Download file (.csv)</a><a href="#" class="button js-md-empty-report-result">Clear & hide</a> </div>')
+                                .append('<div class="md-report-panel_result_head"><h2>' + table_title + ' from ' + from_date_formated + ' to ' + to_date_formated + '</h2><a class="button js-md-export" data-format="xlsx" data-filename="invoice-' + from_date_formated + '_' + to_date_formated + '" href="#">Download file (.xlsx)</a><a class="button js-md-export" data-format="csv" data-filename="invoice-' + from_date_formated + '_' + to_date_formated + '" href="#">Download file (.csv)</a><a href="#" class="button js-md-empty-report-result">Clear & hide</a> </div>')
                                 .append(table)
                                 .slideDown();
                         });
@@ -799,11 +796,19 @@ jQuery(function ($) {
 
         var $wrap = $btn.closest('.lr-broadcast-inline');
         var $sel = $wrap.find('.lr-group-select');
-        var groupId = parseInt($sel.val(), 10) || 0;
+
+        // значення: 0 = In flow, число = група, "p:ID" = конкретний партнер
+        var rawVal = String($sel.val() || '0');
+        var partnerId = 0, groupId = 0;
+        if (rawVal.indexOf('p:') === 0) {
+            partnerId = parseInt(rawVal.slice(2), 10) || 0;
+        } else {
+            groupId = parseInt(rawVal, 10) || 0;
+        }
 
         var groupLabel = $sel.find('option:selected').text() || '';
 
-        var doSend = function () {
+        var doSend = function (forceDup) {
             $btn.prop('disabled', true);
             $sel.prop('disabled', true);
             lrShowRowLoader(leadId);
@@ -820,12 +825,40 @@ jQuery(function ($) {
                     action: (window.LeadRouterLogViewer && LeadRouterLogViewer.manualBroadcastAction) ? LeadRouterLogViewer.manualBroadcastAction : 'leadrouter_manual_broadcast',
                     nonce: (window.LeadRouterLogViewer && LeadRouterLogViewer.nonce) ? LeadRouterLogViewer.nonce : '',
                     lead_id: leadId,
-                    group_id: groupId
+                    group_id: groupId,
+                    partner_id: partnerId,
+                    force_dup: forceDup ? 1 : 0
                 }
             }).done(function (resp) {
                 if (!resp || !resp.success) {
                     var msg = (resp && resp.data && resp.data.message) ? resp.data.message : 'Failed';
-                    $wrap.find('.lr-inline-status').text('Error: ' + msg);
+                    var errRowHtml = (resp && resp.data && resp.data.row_html) ? resp.data.row_html : '';
+                    if (errRowHtml) {
+                        // «In flow»: лід не відправлено і вже переведений у await —
+                        // сервер повернув свіжий рядок, показуємо його + причину
+                        $btn.closest('tr').replaceWith(errRowHtml);
+                        $('#leadrow-' + leadId).find('.lr-inline-status').first().text(msg);
+                    } else {
+                        $wrap.find('.lr-inline-status').text('Error: ' + msg);
+                    }
+                    return;
+                }
+
+                // дубль/попередження партнера: підтвердження і повтор з force_dup
+                if (resp.data && resp.data.dup_confirm_required) {
+                    $wrap.find('.lr-inline-status').remove();
+                    var lines = [];
+                    if (resp.data.duplicate_of) {
+                        lines.push('Лід #' + leadId + ' — дубль ліда #' + resp.data.duplicate_of +
+                            ' (' + resp.data.matched_by + ').');
+                    }
+                    if (resp.data.partner_warnings && resp.data.partner_warnings.length) {
+                        lines.push('Партнер: ' + resp.data.partner_warnings.join('; ') + '.');
+                    }
+                    lines.push('Все одно відправити?');
+                    if (window.confirm(lines.join('\n'))) {
+                        doSend(true);
+                    }
                     return;
                 }
 
@@ -848,13 +881,19 @@ jQuery(function ($) {
             });
         };
 
-        // Confirm only for конкретної групи (groupId > 0)
-        /*if (groupId > 0) {
-            injectInlineConfirm($wrap, groupLabel, doSend);
+        // Підтвердження для всіх режимів: партнер / група / In flow
+        var confirmMsg;
+        if (partnerId > 0) {
+            confirmMsg = 'Відправити лід #' + leadId + ' партнеру «' + groupLabel.trim() + '»?';
+        } else if (groupId > 0) {
+            confirmMsg = 'Відправити лід #' + leadId + ' у групу «' + groupLabel.trim() + '»?';
+        } else {
+            confirmMsg = 'Відправити лід #' + leadId + ' у розподіл (In flow)?';
+        }
+        if (!window.confirm(confirmMsg)) {
             return;
-        }*/
+        }
 
-        // Auto → no confirm
         doSend();
     });
 
@@ -863,7 +902,15 @@ jQuery(function ($) {
         var $btn = $(this);
         var $wrap = $btn.closest('.lr-bulk-send');
         var $status = $wrap.find('.lr-bulk-status');
-        var groupId = parseInt($wrap.find('.lr-bulk-group-select').val(), 10) || 0;
+
+        // значення: 0 = In flow, число = група, "p:ID" = конкретний партнер
+        var rawVal = String($wrap.find('.lr-bulk-group-select').val() || '0');
+        var partnerId = 0, groupId = 0;
+        if (rawVal.indexOf('p:') === 0) {
+            partnerId = parseInt(rawVal.slice(2), 10) || 0;
+        } else {
+            groupId = parseInt(rawVal, 10) || 0;
+        }
         var groupLabel = $wrap.find('.lr-bulk-group-select option:selected').text() || '';
 
         var leadIds = [];
@@ -877,12 +924,20 @@ jQuery(function ($) {
             return;
         }
 
-        // confirm only for specific group
-        if (groupId > 0) {
-            if (!window.confirm('Send ' + leadIds.length + ' lead(s) to group "' + groupLabel + '"?')) {
-                return;
-            }
+        // Підтвердження для всіх режимів: партнер / група / In flow
+        var bulkMsg;
+        if (partnerId > 0) {
+            bulkMsg = 'Відправити ' + leadIds.length + ' лід(ів) партнеру «' + groupLabel.trim() + '»?';
+        } else if (groupId > 0) {
+            bulkMsg = 'Відправити ' + leadIds.length + ' лід(ів) у групу «' + groupLabel.trim() + '»?';
+        } else {
+            bulkMsg = 'Відправити ' + leadIds.length + ' лід(ів) у розподіл (In flow)?';
         }
+        if (!window.confirm(bulkMsg)) {
+            return;
+        }
+
+        var sendBulk = function (forceDup) {
 
         leadIds.forEach(function(id){ lrShowRowLoader(id); });
 
@@ -898,13 +953,36 @@ jQuery(function ($) {
                 action: (window.LeadRouterLogViewer && LeadRouterLogViewer.manualBroadcastBulkAction) ? LeadRouterLogViewer.manualBroadcastBulkAction : 'leadrouter_manual_broadcast_bulk',
                 nonce: (window.LeadRouterLogViewer && LeadRouterLogViewer.nonce) ? LeadRouterLogViewer.nonce : '',
                 group_id: groupId,
-                lead_ids: leadIds
+                partner_id: partnerId,
+                lead_ids: leadIds,
+                force_dup: forceDup ? 1 : 0
             }
         }).done(function (resp) {
 
             if (!resp || !resp.success) {
                 var msg = (resp && resp.data && resp.data.message) ? resp.data.message : 'Failed';
                 $status.text('Error: ' + msg);
+                return;
+            }
+
+            // дублі серед вибраних / попередження партнера: підтвердження
+            if (resp.data && resp.data.dup_confirm_required) {
+                var lines = [];
+                var dups = resp.data.duplicates || [];
+                if (dups.length) {
+                    lines.push('Серед вибраних ' + dups.length + ' дубль(ів):');
+                    dups.forEach(function (d) {
+                        lines.push('#' + d.lead_id + ' → дубль #' + d.duplicate_of + ' (' + d.matched_by + ')');
+                    });
+                }
+                if (resp.data.partner_warnings && resp.data.partner_warnings.length) {
+                    lines.push('Партнер: ' + resp.data.partner_warnings.join('; ') + '.');
+                }
+                $status.text('');
+                var q = lines.join('\n') + '\n\nВідправити всі ' + leadIds.length + ' лід(ів) попри це?';
+                if (window.confirm(q)) {
+                    sendBulk(true);
+                }
                 return;
             }
 
@@ -935,6 +1013,10 @@ jQuery(function ($) {
             $wrap.find('.lr-bulk-group-select').prop('disabled', false);
             leadIds.forEach(function(id){ lrHideRowLoader(id); });
         });
+
+        };
+
+        sendBulk();
 
     });
 

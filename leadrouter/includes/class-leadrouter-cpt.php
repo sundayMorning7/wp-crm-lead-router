@@ -132,8 +132,32 @@ function leadrouter_create_custom_fields()
                     })
                     ->set_default_value('0'),
 
+            // ===== Анти-дубль по телефону/email =====
+            Field::make('checkbox', 'leadrouter_duplicate_check_enabled', __('Перевіряти ліди на дублі', 'leadrouter'))
+                ->set_help_text('Позначати лід як дубль, якщо телефон або email уже зустрічались за останні N діб. Дубль отримує статус error і відправляється у Групу для помилкових статусів.'),
 
+            // тип text (а не number) — у вбудованій версії Carbon Fields
+            // поля 'number' немає, як і в сусідніх leadrouter_pause_*
+            Field::make('text', 'leadrouter_duplicate_window_days', __('Вікно пошуку дублів, діб', 'leadrouter'))
+                ->set_attribute('type', 'number')
+                ->set_attribute('min', 1)
+                ->set_default_value(30)
+                ->set_help_text('Вікно пошуку дублів у добах (EST). Працює, лише коли увімкнена перевірка дублів.'),
 
+            // ===== Термін давності досилки (await / sent_partial) =====
+            Field::make('checkbox', 'leadrouter_retry_no_expiry', __('Досилати ліди безстроково', 'leadrouter'))
+                ->set_default_value(true)
+                ->set_help_text('Увімкнено — await/sent_partial ліди добираються без обмеження за віком (поточна поведінка). Вимкнено — діє термін із поля нижче; прострочені ліди отримують термінальний статус expired і більше не досилаються.'),
+
+            Field::make('text', 'leadrouter_retry_max_hours', __('Термін досилки, годин', 'leadrouter'))
+                ->set_attribute('type', 'number')
+                ->set_attribute('min', 0)
+                ->set_default_value(0)
+                ->set_help_text('Діє, лише коли безстрокову досилку вимкнено. 0 — досилати до кінця доби EST, у яку створено лід; N > 0 — не довше N годин від створення ліда.'),
+
+            Field::make('checkbox', 'leadrouter_shared_topup_enabled', __('Автоматично добирати копії shared-лідів', 'leadrouter'))
+                ->set_default_value(true)
+                ->set_help_text('Увімкнено — крон сам добирає відсутні копії (2/6 → 6/6). Вимкнено — лід лишається як є, копії добирає менеджер вручну. На первинну доставку (await) не впливає.'),
 
 
 /*
@@ -148,6 +172,59 @@ function leadrouter_create_custom_fields()
             Field::make('checkbox', 'leadrouter_queue_if_closed', __('Ставити в чергу, якщо партнер закритий', 'leadrouter'))
                 ->set_option_value('yes')
                 ->set_default_value('yes'),*/
+
+        ))
+        // ===== Резервні групи =====
+        // Групи, які на панелі балансування показуються ПОЗА ЧЕРГОЮ — окремим
+        // рядком над сіткою й незалежно від звичайних фільтрів (немає партнерів,
+        // нульові ліміти на сьогодні, група вимкнена). Резерв має бути видно
+        // завжди: туди йде те, що не розібрали інші.
+        //
+        // Зберігаємо ІДЕНТИФІКАТОРИ груп (post_id), а не назви: групу можуть
+        // перейменувати, і прив'язка за назвою тихо розсиплеться.
+        ->add_tab(__('Резервні групи', 'leadrouter'), array(
+
+            Field::make('set', 'lr_reserve_groups', __('Резервні групи', 'leadrouter'))
+                ->add_options(function () {
+                    global $wpdb;
+
+                    // Режим і прапорець active — з leadrouter_groups, назву беремо
+                    // з самого поста: так список не залежить від синхронізації
+                    // колонки name. Групи в кошику не показуємо — вони не беруть
+                    // участі в розподілі, тож і в резерв їх ставити нема сенсу.
+                    $rows = $wpdb->get_results(
+                        "SELECT g.post_id, p.post_title AS name, g.mode, g.active
+                           FROM {$wpdb->prefix}leadrouter_groups g
+                           JOIN {$wpdb->posts} p
+                             ON p.ID = g.post_id
+                            AND p.post_type = 'leadrouter_group'
+                            AND p.post_status <> 'trash'
+                          ORDER BY p.post_title",
+                        ARRAY_A
+                    ) ?: array();
+
+                    $options = array();
+                    foreach ($rows as $r) {
+                        $pid = (int) $r['post_id'];
+                        if ($pid <= 0) {
+                            continue;
+                        }
+
+                        // режим і стан — прямо в підписі, щоб не тримати окрему таблицю
+                        $options[$pid] = sprintf(
+                            '%s — #%d, %s, %s',
+                            $r['name'],
+                            $pid,
+                            (string) $r['mode'],
+                            (int) $r['active'] === 1
+                                ? __('активна', 'leadrouter')
+                                : __('вимкнена', 'leadrouter')
+                        );
+                    }
+
+                    return $options;
+                })
+                ->set_help_text('Позначені групи показуються на панелі балансування завжди — окремим рядком над рештою і поза звичайними фільтрами: навіть якщо в групі немає партнерів, у партнерів нульові ліміти на сьогодні або групу вимкнено. Потрібно, щоб було видно, що саме йде в резерв.'),
 
         ))
         ->add_tab(__('Logs', 'leadrouter'), array(
@@ -250,37 +327,111 @@ function leadrouter_create_custom_fields()
         ));
 
     // ===== GROUP =====
+    // Вкладку «Основні» злито у «Розподіл»: єдиним живим полем був список
+    // партнерів групи — тепер він унизу вкладки «Розподіл».
     Container::make('post_meta', __('Налаштування групи', 'leadrouter'))
         ->where('post_type', '=', 'leadrouter_group')
-        ->add_tab(__('Основні', 'leadrouter'), array(
-/*
-            Field::make('select', 'leadrouter_group_distribution_type', __('Тип розподілу', 'leadrouter'))
-                ->set_options(array(
-                    'all_at_once' => __('Одразу всім', 'leadrouter'),
-                    'one_by_one' => __('По одному', 'leadrouter'),
-                ))
-                ->set_width(50),*/
-/*
-            Field::make('text', 'leadrouter_group_priority', __('Пріоритет', 'leadrouter'))
-                ->set_attribute('type', 'number')
-                ->set_width(50)
-                ->set_default_value('100'),*/
+        // ===== Розподіл: режим групи, N/L, коефіцієнт (фаза 0 — поля і синк) =====
+        ->add_tab(__('Розподіл', 'leadrouter'), array(
 
-/*
-            Field::make('radio', 'leadrouter_group_lasthoupegroup', __('Last hope group ? (only one !)', 'leadrouter'))
-                ->set_options(array(
-                    '1' => __('Yes', 'leadrouter'),
-                    '0' => __('No', 'leadrouter'),
+            Field::make('select', 'lr_group_mode', __('Тип групи', 'leadrouter'))
+                ->add_options(array(
+                    'classic' => __('Класична', 'leadrouter'),
+                    'shared'  => __('Shared × N', 'leadrouter'),
                 ))
+                ->set_default_value('classic')
+                ->set_width(50)
+                ->set_help_text('<strong>Класична</strong> — кожен лід продається один раз, точно як працювало завжди. <strong>Shared × N</strong> — кожен лід групи продається N різним партнерам одночасно (дешевші, неексклюзивні ліди). Зміна типу набуває чинності з наступної доби (EST).'),
+
+            Field::make('text', 'lr_group_coef', __('Коефіцієнт групи', 'leadrouter'))
+                ->set_attribute('type', 'number')
+                ->set_attribute('step', '0.1')
+                ->set_attribute('min', '0')
+                ->set_default_value('1.0')
+                ->set_width(50)
+                ->set_help_text('Множник пріоритету групи у розподілі потоку між групами. <strong>1.0 — нічого не змінює.</strong> Більше 1.0 — група отримує більшу частку лідів протягом дня; при нестачі потоку добирає свою норму першою. Застосовується одразу, зміна пишеться в журнал.'),
+
+            Field::make('text', 'lr_group_share_n', __('Копій на лід (N)', 'leadrouter'))
+                ->set_attribute('type', 'number')
+                ->set_attribute('min', '2')
+                ->set_default_value('6')
+                ->set_width(50)
+                ->set_help_text('Скільки разів продається кожен лід цієї групи = скільком різним партнерам він розсилається. Разом з денним обсягом визначає місткість: N × L продажів на день. Діє з наступної доби (EST).')
+                ->set_conditional_logic(array(
+                    array('field' => 'lr_group_mode', 'value' => 'shared'),
+                )),
+
+            Field::make('text', 'lr_group_daily_volume', __('Денний обсяг (L)', 'leadrouter'))
+                ->set_attribute('type', 'number')
+                ->set_attribute('min', '0')
                 ->set_default_value('0')
-                ->set_width(50),
-*/
-            Field::make('html', 'leadrouter_group_list_partner')
+                ->set_width(50)
+                ->set_help_text('Скільки лідів на день має отримати ця група (її вага у черзі між групами). Сума денних лімітів партнерів має дорівнювати N × L — стан звірки в блоці "План слотів" нижче. Діє з наступної доби (EST).')
+                ->set_conditional_logic(array(
+                    array('field' => 'lr_group_mode', 'value' => 'shared'),
+                )),
+
+            Field::make('checkbox', 'lr_group_overflow_on', __('М’яка квота (overflow)', 'leadrouter'))
+                ->set_width(50)
+                ->set_help_text('Після вичерпання денного обсягу L група <strong>продовжує приймати ліди</strong>, поки в її партнерів лишаються вільні денні ліміти (тверда межа — ємність партнерів). Overflow-ліди не беруть участі у WRR-балансі (eff не змінюється) і позначаються в лозі статусом <code>group_assigned_overflow</code>. Вимкнено — жорстка квота, як завжди. <strong>Діє негайно.</strong>')
+                ->set_conditional_logic(array(
+                    array('field' => 'lr_group_mode', 'value' => 'shared'),
+                )),
+
+            Field::make('text', 'lr_group_overflow_cap', __('Стеля overflow (лідів понад L)', 'leadrouter'))
+                ->set_attribute('type', 'number')
+                ->set_attribute('min', '0')
+                ->set_default_value('0')
+                ->set_width(50)
+                ->set_help_text('Максимум додаткових лідів понад денний обсяг. <strong>0 або порожньо — без стелі</strong> (до вичерпання лімітів партнерів). Діє негайно.')
+                ->set_conditional_logic(array(
+                    array('field' => 'lr_group_mode', 'value' => 'shared'),
+                    array('field' => 'lr_group_overflow_on', 'value' => true),
+                )),
+
+            // План слотів: звірка трьох умов + схема N колонок × L (фаза 3)
+            Field::make('html', 'lr_group_slot_plan')
                 ->set_html(function () {
-                    $group_id = get_the_ID();
-                    if (!$group_id) {
+                    $group_id = (int)get_the_ID();
+                    if ($group_id <= 0 || !class_exists('LeadRouter_Slot_Planner')) {
                         return '';
                     }
+
+                    // Беремо значення з меты — план показує те, що щойно задав менеджер
+                    $n = (int)get_post_meta($group_id, '_lr_group_share_n', true);
+                    $l = (int)get_post_meta($group_id, '_lr_group_daily_volume', true);
+                    if ($n <= 0) {
+                        $n = 6;
+                    }
+
+                    $partners = LeadRouter_Slot_Planner::partners_for_group($group_id);
+                    if (empty($partners)) {
+                        return '<p><em>' . esc_html__('У групі ще немає активних партнерів з денним лімітом на сьогодні.', 'leadrouter') . '</em></p>';
+                    }
+
+                    $plan = LeadRouter_Slot_Planner::plan($partners, $n, $l);
+
+                    return '<h3 style="margin:12px 0 8px">' . esc_html__('План слотів (на сьогодні, EST)', 'leadrouter') . '</h3>'
+                        . LeadRouter_Slot_Planner::render_html($plan);
+                })
+                ->set_conditional_logic(array(
+                    array('field' => 'lr_group_mode', 'value' => 'shared'),
+                )),
+
+            // Склад групи: додати/вилучити партнера прямо тут (LR_Group_Partners).
+            // Пише мету партнера _leadrouter_partner_group і перераховує ваги.
+            Field::make('html', 'leadrouter_group_list_partner')
+                ->set_html(function () {
+                    $group_id = (int)get_the_ID();
+                    if ($group_id <= 0) {
+                        return '';
+                    }
+
+                    if (class_exists('LR_Group_Partners')) {
+                        return LR_Group_Partners::render($group_id);
+                    }
+
+                    // запасний варіант — старий список тільки для читання
 
                     $posts = get_posts(array(
                         'post_type' => 'leadrouter_partner',
@@ -288,7 +439,9 @@ function leadrouter_create_custom_fields()
                         'post_status' => 'publish',
                         'meta_query' => array(
                             array(
-                                'key' => 'leadrouter_partner_group',
+                                // ключ Carbon Fields з підкресленням — без нього
+                                // список завжди був порожнім
+                                'key' => '_leadrouter_partner_group',
                                 'value' => $group_id,
                                 'compare' => '=',
                                 'type' => 'NUMERIC',
@@ -308,7 +461,7 @@ function leadrouter_create_custom_fields()
                     }
                     return $html;
                 })
-                ->set_width(30),
+                ->set_width(100),
         ));
 
     // ===== PARTNER =====
@@ -344,6 +497,22 @@ function leadrouter_create_custom_fields()
 
             Field::make('separator', 'leadrouter_partner_sep0', ''),
 
+            // ===== Пріоритет у черзі групи і кластер власника (фаза 0) =====
+            Field::make('text', 'lr_partner_coef', __('Коефіцієнт партнера', 'leadrouter'))
+                ->set_attribute('type', 'number')
+                ->set_attribute('step', '0.1')
+                ->set_attribute('min', '0')
+                ->set_default_value('1.0')
+                ->set_width(50)
+                ->set_help_text('Пріоритет партнера у черзі всередині його групи. <strong>1.0 — нейтрально</strong> (частка визначається лише денним лімітом). Більше 1.0 — партнер отримує ліди раніше протягом дня, а при нестачі потоку добирає свій ліміт першим. Не збільшує денний ліміт — лише порядок. Застосовується одразу, зміна пишеться в журнал.'),
+
+            Field::make('text', 'lr_partner_owner', __('Власник', 'leadrouter'))
+                ->set_width(50)
+                ->set_attribute('placeholder', 'owner_petrov')
+                ->set_help_text('Ідентифікатор власника компанії (наприклад, owner_petrov). Партнери з ОДНАКОВИМ значенням ніколи не отримують той самий лід — на один лід максимум одна компанія власника. Порожнє поле = обмеження немає. Діє і в класичних, і в shared-групах. Увага: сумарний денний ліміт компаній одного власника в shared-групі не може перевищувати денний обсяг групи L.'),
+
+            Field::make('separator', 'leadrouter_partner_sep_owner', ''),
+
             Field::make('radio', 'leadrouter_partner_allow_alaska', __('Дозволяти Alaska?', 'leadrouter'))
                 ->set_options(array(
                     '1' => __('Так', 'leadrouter'),
@@ -361,6 +530,14 @@ function leadrouter_create_custom_fields()
                 ->set_width(50),
 
             Field::make('separator', 'leadrouter_partner_sep1', ''),
+
+            // Попередження до всього блоку годин: порожні початок/кінець = закрито
+            Field::make('html', 'leadrouter_partner_hours_note')
+                ->set_html(
+                    '<p style="margin:0;padding:8px 12px;border-left:4px solid #d63638;background:#fcf0f1;">'
+                    . '<strong>' . esc_html__('Якщо початок або кінець не заповнені — цього дня партнер лідів НЕ отримує.', 'leadrouter') . '</strong>'
+                    . '</p>'
+                ),
 
             // Monday
             Field::make('html', 'leadrouter_partner_mon_label')->set_html('<h3>' . esc_html__('Monday', 'leadrouter') . ':</h3>')->set_width(10),
@@ -589,7 +766,7 @@ function leadrouter_create_custom_fields()
                         'int'            => 'int',
                         'float2'         => 'float(2)',
                         'date_Ymd'       => 'date:Y-m-d (ps)',
-                        'date_Ymd_slash'       => 'date:Y/m/d (ps)',
+                        'date_Ymd_slash' => 'date:Y/m/d (ps)',         // прод 03.08: Door to Door
                         'date_mdy'       => 'date:m/d/Y (ps)',
                         'date_mdy_dash'  => 'date → MM-DD-YYYY',       // ⬅️ нове
                         'split_name_fn'  => 'split_name:fn (з name)',
@@ -601,8 +778,8 @@ function leadrouter_create_custom_fields()
                         'inop_binary_to_bool_reverse' => 'condition→vehicle_inop (Running→true, інше→false)', // ⬅️ нове
                         'phone_us_dashed'=> 'phone → 111-111-1111',    // ⬅️ нове
                         'map_transport_type' => 'transport_type: 1 → Open, 0 → Closed', // ⬅️ нове
-                        'map_transport_type_open_enclosed' => 'transport_type: 1 → Open, 0 → Enclosed', // ⬅️ нове
-                        'map_transport_type_reverse' => 'transport_type: 0 → 1, 1 → 0', // ⬅️ нове
+                        'map_transport_type_open_enclosed' => 'transport_type: 1 → Open, 0 → Enclosed', // прод 03.08
+                        'map_transport_type_reverse' => 'transport_type: 0 → 1, 1 → 0' // ⬅️ нове
                     ])->set_default_value('none'),
                     Field::make('text', 'default_value', 'Default value')->set_width(25)
                         ->set_help_text('Підставляється, якщо значення порожнє'),
@@ -868,6 +1045,7 @@ function lr_partner_carlink_default_map(): array {
     ];
 }
 
+/* Пресет Door to Door Transport — перенесено з прод-правки 03.08.2026 (mavspanel) */
 function lr_partner_door_to_door_transport_default_map(): array {
     return [
         ['our_key' => 'auth_key',                    'their_key' => 'auth_key',                 'transform' => 'none',            'default_value' => ''],

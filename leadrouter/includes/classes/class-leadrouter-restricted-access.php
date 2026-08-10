@@ -41,6 +41,7 @@ class LeadRouter_Restricted_Access
         'leadrouter-logviewer',
         'leadrouter-complaints',
         'leadrouter-billing',   // LeadRouter → Billing (дашборд)
+        'leadrouter-slot-sim',  // LeadRouter → Симулятор слотів (пісочниця, нічого не пише)
     ];
 
     /** Дозволені CPT (Групи/Партнери) */
@@ -74,6 +75,17 @@ class LeadRouter_Restricted_Access
         'leadrouter_clear_logs',    // admin_post
         // Групи (кнопка Вкл/Викл у списку)
         'leadrouter_toggle_group_active', // admin_post
+        // Склад групи: додавання/вилучення партнерів на сторінці групи.
+        // Екран групи менеджеру й так відкритий, а перенести партнера між
+        // групами він може і з екрана партнера (Carbon-поле «Група») — тож
+        // нових повноважень це не дає, лише робочі кнопки на екрані групи.
+        'lr_group_partner_assign',  // wp_ajax
+        'lr_group_partner_remove',  // wp_ajax
+        // Панель балансування (Дашборд і сторінка Лідів — обидві відкриті).
+        // lr_balance_data — тільки читає; lr_balance_set_coef МІНЯЄ коефіцієнт
+        // розподілу, тобто впливає на те, скільки лідів кому йде.
+        'lr_balance_data',          // wp_ajax
+        'lr_balance_set_coef',      // wp_ajax — ВПЛИВАЄ НА РОЗПОДІЛ
         // Тестова відправка ліда партнеру (колонка у списках)
         'lr_send_test_lead',        // wp_ajax
         // ── Білінг: дашборд LeadRouter → Billing ──
@@ -96,6 +108,9 @@ class LeadRouter_Restricted_Access
         // валідується як published leadrouter_partner). Старт/кінець — в audit log.
         'lr_admin_view_partner',        // admin_post — «стати» партнером
         'lr_admin_return_from_partner', // admin_post — повернутися в адмінку
+        // ── Симулятор слотів (read-only: рахує план у пам'яті, нічого не пише) ──
+        'lr_slot_sim',              // wp_ajax — перерахунок сценарію
+        'lr_slot_sim_load',         // wp_ajax — підвантаження групи в сценарій
     ];
 
     /**

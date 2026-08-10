@@ -201,7 +201,7 @@ if (!function_exists('lr_build_partner_payload')) {
             $out[$their] = $value;
         }
 
-        // 🧰 Постобробка: якщо є ключі типу "Vehicles.0.*" або "vehicles.0.*", збираємо їх у массив
+        // 🧰 Постобробка: якщо є ключі типу "Vehicles.0.*" або "vehicles.0.*", збираємо їх у масив
         $vehicles = [];
         $foundVehiclesLower = false;
         $foundVehiclesUpper = false;
@@ -213,7 +213,7 @@ if (!function_exists('lr_build_partner_payload')) {
                     $index = (int)$parts[1];
                     $field = $parts[2];
                     $vehicles[$index][$field] = $value;
-                    unset($out[$key]); // видаляємо старый плоский ключ
+                    unset($out[$key]); // видаляємо старий плоский ключ
                     if ($parts[0] === 'vehicles') $foundVehiclesLower = true;
                     if ($parts[0] === 'Vehicles') $foundVehiclesUpper = true;
                 }
@@ -223,7 +223,7 @@ if (!function_exists('lr_build_partner_payload')) {
         if (!empty($vehicles)) {
             ksort($vehicles);
             $final = array_values($vehicles);
-            // Если были ключи lower-case 'vehicles', отдаём нижний регистр, иначе 'Vehicles'
+            // Якщо були ключі в нижньому регістрі 'vehicles' — віддаємо нижній, інакше 'Vehicles'
             if ($foundVehiclesLower && !$foundVehiclesUpper) {
                 $out['vehicles'] = $final;
             } else {

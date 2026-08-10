@@ -15,6 +15,9 @@ class LeadRouter_Leads_Stats {
         echo '<div class="leadrouter-stats">';
         echo '<h2>' . esc_html__( 'Щоденна статистика', 'leadrouter' ) . '</h2>';
 
+        // A0: Ліди проти продажів (shared: один лід = N продажів)
+        self::render_leads_vs_sales($args);
+
         // A: Нові ліди за день
         self::render_new_leads_by_day($stats['by_day_new_leads']);
 
@@ -294,6 +297,93 @@ class LeadRouter_Leads_Stats {
         } else {
             echo '<tr><td colspan="2">' . esc_html__( 'Немає даних', 'leadrouter' ) . '</td></tr>';
         }
+        echo '</tbody></table>';
+    }
+
+    /**
+     * «Ліди» проти «Продажів» за день (EST).
+     *
+     * Ліди — унікальні lead_id, продажі — копії з leadrouter_lead_assignments.
+     * Для класичних груп це збігається (одна копія на лід), для shared —
+     * один лід дає до N продажів. Джерело окреме, тож наявні таблиці нижче
+     * лишаються з тими самими цифрами, що й раніше.
+     */
+    protected static function render_leads_vs_sales(array $args): void {
+        global $wpdb;
+
+        $t_assign = $wpdb->prefix . 'leadrouter_lead_assignments';
+        $t_groups = $wpdb->prefix . 'leadrouter_groups';
+
+        $where  = [];
+        $params = [];
+
+        if (!empty($args['date_from'])) {
+            $where[]  = 'a.created_at >= %s';
+            $params[] = $args['date_from'] . ' 00:00:00';
+        }
+        if (!empty($args['date_to'])) {
+            $where[]  = 'a.created_at <= %s';
+            $params[] = $args['date_to'] . ' 23:59:59';
+        }
+        if (!empty($args['group_id'])) {
+            $where[]  = 'g.post_id = %d';
+            $params[] = (int)$args['group_id'];
+        }
+        if (!empty($args['partner_id'])) {
+            $where[]  = 'a.partner_id = %d';
+            $params[] = (int)$args['partner_id'];
+        }
+
+        $where_sql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+
+        $sql = "
+            SELECT DATE(a.created_at) AS day,
+                   COUNT(DISTINCT a.lead_id) AS leads,
+                   COUNT(*) AS sales,
+                   SUM(CASE WHEN a.status = 'sent' THEN 1 ELSE 0 END) AS sales_ok,
+                   SUM(CASE WHEN g.mode = 'shared' THEN 1 ELSE 0 END) AS sales_shared
+              FROM {$t_assign} a
+              LEFT JOIN {$t_groups} g ON g.id = a.group_id
+              {$where_sql}
+             GROUP BY DATE(a.created_at)
+             ORDER BY day DESC
+             LIMIT 30";
+
+        $rows = $params
+            ? $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A)
+            : $wpdb->get_results($sql, ARRAY_A);
+
+        echo '<h3 style="margin-top:1.5em;">' . esc_html__('Ліди і продажі за день (EST)', 'leadrouter') . '</h3>';
+        echo '<p style="margin:0 0 6px;color:#646970">'
+            . esc_html__('Лід — унікальний лід; продаж — копія ліда партнеру. Для shared-груп один лід дає до N продажів.', 'leadrouter')
+            . '</p>';
+
+        echo '<table class="widefat striped" style="max-width:900px"><thead><tr>';
+        echo '<th>' . esc_html__('Дата', 'leadrouter') . '</th>';
+        echo '<th>' . esc_html__('Ліди', 'leadrouter') . '</th>';
+        echo '<th>' . esc_html__('Продажі', 'leadrouter') . '</th>';
+        echo '<th>' . esc_html__('З них успішних', 'leadrouter') . '</th>';
+        echo '<th>' . esc_html__('Копій на лід', 'leadrouter') . '</th>';
+        echo '<th>' . esc_html__('З них shared', 'leadrouter') . '</th>';
+        echo '</tr></thead><tbody>';
+
+        if ($rows) {
+            foreach ($rows as $r) {
+                $leads = (int)$r['leads'];
+                printf(
+                    '<tr><td>%s</td><td><strong>%d</strong></td><td>%d</td><td>%d</td><td>%s</td><td>%d</td></tr>',
+                    esc_html($r['day']),
+                    $leads,
+                    (int)$r['sales'],
+                    (int)$r['sales_ok'],
+                    esc_html($leads > 0 ? number_format((int)$r['sales'] / $leads, 2) : '—'),
+                    (int)$r['sales_shared']
+                );
+            }
+        } else {
+            echo '<tr><td colspan="6">' . esc_html__('Немає даних', 'leadrouter') . '</td></tr>';
+        }
+
         echo '</tbody></table>';
     }
 

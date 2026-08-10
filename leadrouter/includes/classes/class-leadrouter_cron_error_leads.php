@@ -87,6 +87,20 @@ if ( ! class_exists( 'LeadRouter_Cron_Error_Leads' ) ) {
                 'force_group_post_id' => $force_group_post_id,
             ] );
 
+            // 🛡 dispatch_broadcast може повернути WP_Error (нема групи, нема
+            // партнерів, відхилений force-партнер). WP_Error не реалізує
+            // ArrayAccess — масивний доступ нижче в PHP 8 дає Fatal Error,
+            // `??` його не гасить: лок не знімається і крон пропускає тік.
+            if ( is_wp_error( $result ) ) {
+                LeadRouter_Flow::log_error( 'error cron: dispatch_broadcast returned WP_Error', [
+                    'lead_id' => $lead_id,
+                    'code'    => $result->get_error_code(),
+                    'message' => $result->get_error_message(),
+                ] );
+                delete_transient( self::LOCK_KEY );
+                return;
+            }
+
             $lead_status = $result['summary']['lead_status'] ?? 'error';
 
 // якщо партнер не прийняв lead / endpoint лежить / dispatch зламався
@@ -113,7 +127,7 @@ if ( ! class_exists( 'LeadRouter_Cron_Error_Leads' ) ) {
                         'lead_id'     => $lead_id,
                         'partner_id'  => 0,
                         'group_id'    => $force_group_post_id,
-                        'assigned_at' => current_time( 'mysql' ),
+                        'assigned_at' => leadrouter_now_mysql_est(),
                         'status'      => 'partner_down',
                     ],
                     [ '%d', '%d', '%d', '%s', '%s' ]

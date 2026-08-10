@@ -3,7 +3,7 @@
  * Plugin Name: LeadRouter by Maks Devda
  * Plugin URI: https://example.com/leadrouter
  * Description: Розподіл лідів між партнерами за групами з логами та адмін-інтерфейсом.
- * Version: 1.7.2
+ * Version: 1.9.0
  * Author: Maks Devda
  * Author URI: https://example.com
  * License: GPLv2 or later
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 }
 
 
-define('LEADROUTER_VERSION', '1.7.2');
+define('LEADROUTER_VERSION', '1.9.2');
 define('LEADROUTER_PLUGIN_FILE', __FILE__);
 define('LEADROUTER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('LEADROUTER_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -44,7 +44,11 @@ require_once LEADROUTER_PLUGIN_DIR . 'includes/functions-leadrouter.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/leadrouter-main.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/helpers.php';
 
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-dns-fix.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-hooks.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-shared-sync.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-slot-planner.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-slot-sim.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_dispatcher_eff.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter-partners.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-leadrouter_sender_light.php';
@@ -62,6 +66,7 @@ require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-billing-cron.php
 // Кабінет партнера: звʼязок user↔partner, роль, доступ
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-partner-auth.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-partner-portal.php';
+require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-xlsx.php';
 require_once LEADROUTER_PLUGIN_DIR . 'includes/classes/class-lr-partner-card.php';
 
 // Адмін: перегляд кабінету партнера («Login as partner»), лише manage_options
@@ -106,11 +111,34 @@ if (is_admin()) {
     // Звіт білінгу за місяць (LeadRouter → Report)
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/page-billing-report.php';
 
+    // Резервні групи переїхали у вкладку «Резервні групи» налаштувань
+    // (Carbon Fields, див. leadrouter_create_custom_fields). Стара окрема
+    // сторінка includes/admin/page-settings.php більше не підключається.
+
+    // Пісочниця плану слотів (LeadRouter → Симулятор слотів), read-only
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/page-slot-simulator.php';
+
     // Адмін-інтерфейс заявок-скарг (LeadRouter → Complaints)
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/page-complaints.php';
 
     // Рядок з поточним часом плагіна (America/New_York) на всіх сторінках LeadRouter
     require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/lr-est-clock.php';
+
+    // Панель балансування на головній сторінці LeadRouter
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/class-lr-balance-panel.php';
+    LR_Balance_Panel::register();
+
+    // Склад групи: додавання/вилучення партнерів на сторінці групи
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/class-lr-group-partners.php';
+    LR_Group_Partners::register();
+
+    // Тег «Власник»: канонічний вигляд при збереженні + автопідказка
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/class-lr-partner-owner.php';
+    LR_Partner_Owner::register();
+
+    // Список партнерів: колонка «Група» + сортування «активні → за групою»
+    require_once LEADROUTER_PLUGIN_DIR . 'includes/admin/class-lr-partner-columns.php';
+    LR_Partner_Columns::register();
 
     LeadRouter_LogViewer::init();
 
@@ -223,6 +251,11 @@ CREATE TABLE {$table_leads} (
   email VARCHAR(191) NULL,
   phone VARCHAR(50) NULL,
 
+  -- нормалізовані ключі для пошуку дублів (телефон — останні 10 цифр,
+  -- email — lower/trim). Заповнюються при створенні ліда + backfill.
+  phone_norm VARCHAR(20) NULL,
+  email_norm VARCHAR(191) NULL,
+
   est_ship_date DATE NULL,
 
   vehicle_bodytype   VARCHAR(50)  NULL,
@@ -255,13 +288,20 @@ CREATE TABLE {$table_leads} (
   last_error_at   DATETIME NULL,
   await_groups    LONGTEXT NULL,
 
+  -- скільки копій ліда планували продати і скільки продали
+  -- (для класичних груп target = 1, shared-режим — фаза 1)
+  copies_target TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  copies_sold   TINYINT UNSIGNED NOT NULL DEFAULT 0,
+
   -- кешований підсумок, кому відправили (JSON)
   sent_summary_json LONGTEXT NULL,
 
   PRIMARY KEY (id),
   KEY idx_partner_id   (partner_id),
   KEY idx_created_at   (created_at),
-  KEY idx_status_next  (status, next_attempt_at)
+  KEY idx_status_next  (status, next_attempt_at),
+  KEY idx_phone_norm   (phone_norm),
+  KEY idx_email_norm   (email_norm)
 ) {$charset_collate};
 ";
     dbDelta($sql);
@@ -300,6 +340,20 @@ CREATE TABLE {$table_leads} (
       weight_7 INT NOT NULL DEFAULT 0,
       eff BIGINT(20) NOT NULL DEFAULT 0,
       active TINYINT(1) NOT NULL DEFAULT 1,
+
+      -- shared-розподіл (джерело правди — post meta групи, сюди синкається:
+      -- mode/share_n/daily_volume на межі доби EST, coef — негайно)
+      mode VARCHAR(10) NOT NULL DEFAULT 'classic',
+      share_n INT UNSIGNED NOT NULL DEFAULT 1,
+      daily_volume INT UNSIGNED NOT NULL DEFAULT 0,
+      coef DECIMAL(6,2) NOT NULL DEFAULT 1.00,
+
+      -- м'яка квота (overflow): після вичерпання daily_volume група може
+      -- приймати ліди понад план, поки в партнерів є вільні денні ліміти.
+      -- overflow_cap — стеля додаткових лідів (0 = без стелі). Синк — негайно.
+      overflow_on TINYINT(1) NOT NULL DEFAULT 0,
+      overflow_cap INT UNSIGNED NOT NULL DEFAULT 0,
+
       updated_at DATETIME NULL,
       PRIMARY KEY (id),
       KEY idx_post_id (post_id),
@@ -355,16 +409,230 @@ CREATE TABLE {$table_leads} (
     ";
     dbDelta($sql);
 
+    // 8) Призначення лідів партнерам (append-only). Один рядок = одна копія ліда.
+    //    Два UNIQUE — фізичний запобіжник бізнес-правил: той самий лід не може
+    //    вдруге піти тому ж партнеру і тому ж власнику (кластеру компаній).
+    $table_assignments = $wpdb->prefix . 'leadrouter_lead_assignments';
+    $sql = "
+    CREATE TABLE {$table_assignments} (
+      id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+      lead_id BIGINT(20) UNSIGNED NOT NULL,
+      group_id BIGINT(20) UNSIGNED NOT NULL,
+      partner_id BIGINT(20) UNSIGNED NOT NULL,
+      owner_id VARCHAR(64) NOT NULL,
+      copy_no TINYINT UNSIGNED NOT NULL DEFAULT 1,
+      status VARCHAR(20) NOT NULL,
+      pick_mode VARCHAR(10) NOT NULL,
+      created_at DATETIME NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_lead_partner (lead_id, partner_id),
+      UNIQUE KEY uniq_lead_owner (lead_id, owner_id),
+      KEY idx_partner_created (partner_id, created_at),
+      KEY idx_group_created (group_id, created_at),
+      KEY idx_lead (lead_id)
+    ) ENGINE=InnoDB {$charset_collate};
+    ";
+    dbDelta($sql);
+
+    // 9) Журнал змін коефіцієнтів груп і партнерів (хто, коли, старе → нове)
+    $table_coef_audit = $wpdb->prefix . 'leadrouter_coef_audit';
+    $sql = "
+    CREATE TABLE {$table_coef_audit} (
+      id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+      object_type VARCHAR(10) NOT NULL,
+      object_id BIGINT(20) UNSIGNED NOT NULL,
+      old_val DECIMAL(6,2) NOT NULL,
+      new_val DECIMAL(6,2) NOT NULL,
+      user_id BIGINT(20) UNSIGNED NOT NULL,
+      changed_at DATETIME NOT NULL,
+      PRIMARY KEY (id),
+      KEY idx_obj (object_type, object_id)
+    ) ENGINE=InnoDB {$charset_collate};
+    ";
+    dbDelta($sql);
+
+    // 10) Колонки, додані після першого релізу.
+    //     Через dbDelta їх додавати не можна: на цій схемі (коментарі й порожні
+    //     рядки всередині CREATE TABLE) він генерує биті ALTER-и і мовчки
+    //     пропускає частину колонок. Тому — явні ідемпотентні ALTER-и.
+    leadrouter_add_column_if_missing($table_groups, 'mode', "VARCHAR(10) NOT NULL DEFAULT 'classic' AFTER active");
+    leadrouter_add_column_if_missing($table_groups, 'share_n', 'INT UNSIGNED NOT NULL DEFAULT 1 AFTER mode');
+    leadrouter_add_column_if_missing($table_groups, 'daily_volume', 'INT UNSIGNED NOT NULL DEFAULT 0 AFTER share_n');
+    leadrouter_add_column_if_missing($table_groups, 'coef', 'DECIMAL(6,2) NOT NULL DEFAULT 1.00 AFTER daily_volume');
+
+    leadrouter_add_column_if_missing($table_leads, 'copies_target', 'TINYINT UNSIGNED NOT NULL DEFAULT 1 AFTER await_groups');
+    leadrouter_add_column_if_missing($table_leads, 'copies_sold', 'TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER copies_target');
+
+    // Колонки анти-дублю (фаза D) — те саме, на випадок якщо dbDelta їх не додав
+    leadrouter_add_column_if_missing($table_leads, 'phone_norm', 'VARCHAR(20) NULL AFTER phone');
+    leadrouter_add_column_if_missing($table_leads, 'email_norm', 'VARCHAR(191) NULL AFTER phone_norm');
+    leadrouter_add_index_if_missing($table_leads, 'idx_phone_norm', '(phone_norm)');
+    leadrouter_add_index_if_missing($table_leads, 'idx_email_norm', '(email_norm)');
+
     // Таблиці модуля білінгу партнерів
     if (function_exists('leadrouter_install_billing_db')) {
         leadrouter_install_billing_db();
+    }
+
+    // 1.9.1: група партнера В МОМЕНТ списання — щоб Billing Report не
+    // переписував історію заднім числом при переміщенні партнера між групами
+    $table_tx = $wpdb->prefix . 'leadrouter_billing_transactions';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_tx)) === $table_tx) {
+        leadrouter_add_column_if_missing($table_tx, 'group_id', 'BIGINT UNSIGNED NULL AFTER lead_id');
+        leadrouter_add_index_if_missing($table_tx, 'idx_group_id', '(group_id)');
+        leadrouter_backfill_tx_group();
     }
 
     // Роль `partner` для кабінету (ідемпотентно)
     if (class_exists('LR_Partner_Auth')) {
         LR_Partner_Auth::install_role();
     }
+
+    // Одноразове заповнення phone_norm/email_norm для вже існуючих лідів.
+    // Тут — лише маленька перша порція (це звичайний запит користувача),
+    // основну масу доганяє wp-cron подія.
+    leadrouter_backfill_lead_norm(200, 1);
 }
+
+/**
+ * Додати колонку, якщо її ще немає (ідемпотентно, тільки ADD).
+ * $definition — тип + опції + за потреби AFTER (без назви колонки).
+ */
+function leadrouter_add_column_if_missing(string $table, string $column, string $definition): bool
+{
+    global $wpdb;
+
+    $exists = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", $column));
+    if ($exists) {
+        return false;
+    }
+
+    $wpdb->query("ALTER TABLE {$table} ADD COLUMN `{$column}` {$definition}");
+
+    return true;
+}
+
+/**
+ * Одноразовий backfill group_id у spend-транзакціях (міграція 1.9.1).
+ *
+ * Канонічна група пари lead+partner — з ОСТАННЬОГО успішного запису send_log
+ * (той самий прийом, що в прод-звіті Daily Breakdown). send_log.group_id
+ * історично містить то post_id групи, то внутрішній id рядка leadrouter_groups —
+ * CASE зводить обидва варіанти до post_id.
+ */
+function leadrouter_backfill_tx_group(): void
+{
+    global $wpdb;
+
+    if (get_option('leadrouter_tx_group_backfilled') === 'done') {
+        return;
+    }
+
+    $t_tx   = $wpdb->prefix . 'leadrouter_billing_transactions';
+    $t_send = $wpdb->prefix . 'leadrouter_send_log';
+    $t_grp  = $wpdb->prefix . 'leadrouter_groups';
+
+    $wpdb->query("
+        UPDATE {$t_tx} t
+        JOIN (
+            SELECT s.lead_id, s.partner_id,
+                   CASE
+                       WHEN gp.ID IS NOT NULL THEN s.group_id
+                       WHEN rg.post_id IS NOT NULL AND rg.post_id > 0 THEN rg.post_id
+                       ELSE s.group_id
+                   END AS group_post_id
+              FROM {$t_send} s
+              JOIN (
+                    SELECT lead_id, partner_id, MAX(id) AS mid
+                      FROM {$t_send}
+                     WHERE status = 'success'
+                     GROUP BY lead_id, partner_id
+              ) c ON c.mid = s.id
+              LEFT JOIN {$wpdb->posts} gp
+                     ON gp.ID = s.group_id AND gp.post_type = 'leadrouter_group'
+              LEFT JOIN {$t_grp} rg ON rg.id = s.group_id
+        ) src ON src.lead_id = t.lead_id AND src.partner_id = t.partner_id
+        SET t.group_id = src.group_post_id
+        WHERE t.type = 'spend' AND t.group_id IS NULL
+    ");
+
+    update_option('leadrouter_tx_group_backfilled', 'done', false);
+}
+
+/** Додати індекс, якщо його ще немає (ідемпотентно) */
+function leadrouter_add_index_if_missing(string $table, string $index, string $columns): bool
+{
+    global $wpdb;
+
+    $exists = $wpdb->get_var($wpdb->prepare("SHOW INDEX FROM {$table} WHERE Key_name = %s", $index));
+    if ($exists) {
+        return false;
+    }
+
+    $wpdb->query("ALTER TABLE {$table} ADD KEY `{$index}` {$columns}");
+
+    return true;
+}
+
+/**
+ * Backfill колонок phone_norm/email_norm у leads (анти-дубль).
+ *
+ * Йдемо порційно по курсору id, щоб на великій таблиці не впертись у таймаут:
+ * за один прохід обробляємо $batch * $max_batches рядків, решту доганяє
+ * одноразова wp-cron подія. Нормалізація — тими самими хелперами, що і при
+ * INSERT, щоб бекфіл і нові ліди давали однакові ключі.
+ *
+ * @return bool true — бекфіл завершено.
+ */
+function leadrouter_backfill_lead_norm(int $batch = 500, int $max_batches = 10): bool
+{
+    global $wpdb;
+
+    if (get_option('leadrouter_lead_norm_backfilled') === 'done') {
+        return true;
+    }
+
+    $table  = $wpdb->prefix . 'leadrouter_leads';
+    $cursor = (int)get_option('leadrouter_lead_norm_backfill_cursor', 0);
+
+    for ($i = 0; $i < $max_batches; $i++) {
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT id, phone, email FROM {$table} WHERE id > %d ORDER BY id ASC LIMIT %d",
+                $cursor,
+                $batch
+            ),
+            ARRAY_A
+        );
+
+        if (empty($rows)) {
+            update_option('leadrouter_lead_norm_backfilled', 'done', false);
+            return true;
+        }
+
+        foreach ($rows as $row) {
+            $wpdb->update(
+                $table,
+                leadrouter_lead_norm_columns($row['phone'] ?? '', $row['email'] ?? ''),
+                ['id' => (int)$row['id']],
+                ['%s', '%s'],
+                ['%d']
+            );
+            $cursor = (int)$row['id'];
+        }
+
+        update_option('leadrouter_lead_norm_backfill_cursor', $cursor, false);
+    }
+
+    // Не добігли до кінця таблиці — продовжимо наступним запуском крону
+    if (!wp_next_scheduled('leadrouter_backfill_lead_norm_event')) {
+        wp_schedule_single_event(time() + 60, 'leadrouter_backfill_lead_norm_event');
+    }
+
+    return false;
+}
+
+add_action('leadrouter_backfill_lead_norm_event', 'leadrouter_backfill_lead_norm');
 
 /** Перевірка/апґрейд версії схеми */
 function leadrouter_check_version()
@@ -403,7 +671,9 @@ add_action('init', 'leadrouter_register_cpts');
 add_action('init', ['LeadRouter_Admin', 'add_scripts']);
 add_action('init', ['LeadRouter_Admin', 'register_ajax']);
 
+LR_DNS_Fix::init();
 LeadRouter_Hooks::init();
+LR_Shared_Sync::init();
 LR_Partner_Auth::register();
 LR_Partner_Portal::register();
 LR_Partner_Card::register();
@@ -439,7 +709,10 @@ add_action('leadrouter_after_send', function ($lead_id, $partner_row, $result) {
     if ($partner_id <= 0 || (int) $lead_id <= 0) {
         return;
     }
-    LR_Billing::deduct_for_lead($partner_id, (int) $lead_id);
+    // Група в момент відправки — лягає в транзакцію, щоб звіт не залежав
+    // від пізніших переміщень партнера між групами
+    $group_post_id = (int) (is_array($partner_row) ? ($partner_row['group_post_id'] ?? 0) : 0);
+    LR_Billing::deduct_for_lead($partner_id, (int) $lead_id, $group_post_id);
 }, 10, 3);
 
 /* ===================== ТЕСТ/СЕРВІС ХУКИ ===================== */
@@ -505,24 +778,9 @@ add_action('admin_init', function () {
     );
 }, 30);
 
-/** Нотіси (кнопки) на сторінці LeadRouter */
-add_action('admin_notices', function () {
-    if (!current_user_can('manage_options')) return;
-    if (empty($_GET['page']) || $_GET['page'] !== 'leadrouter') return;
-    if (defined('LEADROUTER_PRODUCTION') && LEADROUTER_PRODUCTION) return; // скрываем на проде
-
-    $purge_url = wp_nonce_url(add_query_arg(['flow_purge' => '1'], admin_url()), 'leadrouter_flow_purge');
-    echo '<div class="notice notice-warning" style="padding:10px 12px;">'
-        . '<p><strong>LeadRouter:</strong> Тестове очищення даних (purge) видалить усі ліди та логи і скине ефективності груп. Операція незворотна.</p>'
-        . '<p><a class="button button-secondary" href="' . esc_url($purge_url) . '" onclick="return confirm(\'Підтвердити повне очищення?\');">Запустити PURGE</a></p>'
-        . '</div>';
-
-    $seed_url = wp_nonce_url(add_query_arg(['flow_seed' => '1'], admin_url()), 'leadrouter_flow_seed');
-    echo '<div class="notice notice-info" style="padding:10px 12px;">'
-        . '<p><strong>LeadRouter:</strong> Згенерувати тестові ліди і розіслати партнерам?</p>'
-        . '<p><a class="button button-primary" href="' . esc_url($seed_url) . '" onclick="return confirm(\'Створити 20 випадкових лідів і розіслати? (EST)\');">Запустити seed</a></p>'
-        . '</div>';
-});
+/* Кнопки Seed/Purge з головної сторінки прибрано (артефакт ранніх версій).
+ * Самі dev-ендпоінти ?flow_seed=1 / ?flow_purge=1 (з nonce) лишаються робочими
+ * поза продом — див. обробники admin_init вище. */
 
 
 

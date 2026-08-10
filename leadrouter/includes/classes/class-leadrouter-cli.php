@@ -24,9 +24,9 @@
 
             $table_groups = $wpdb->prefix . 'leadrouter_groups';
             $groups = $wpdb->get_results("
-                SELECT id, name, weight,
+                SELECT id, name,
                        weight_1, weight_2, weight_3, weight_4, weight_5, weight_6, weight_7,
-                       active
+                       coef, active
                 FROM {$table_groups}
                 WHERE active = 1
             ", ARRAY_A);
@@ -36,11 +36,12 @@
                 return;
             }
 
-            // Побудова items: weight = ефективна вага на сьогодні (EST)
+            // Побудова items: weight = вага на сьогодні × коефіцієнт групи (EST).
+            // Коеф зсуває чергу (саме це й симулюємо); денну норму він не міняє.
             $items = [];
             $totalW = 0;
             foreach ($groups as $g) {
-                $w = self::effective_weight_today($g, $dowN);
+                $w = self::queue_weight_today($g, $dowN);
                 if ($w > 0) {
                     $items[] = ['group_id' => (int)$g['id'], 'name' => (string)$g['name'], 'weight' => (int)$w];
                     $totalW += (int)$w;
@@ -94,9 +95,9 @@
 
             $table_groups = $wpdb->prefix . 'leadrouter_groups';
             $groups = $wpdb->get_results("
-                SELECT id, name, weight,
+                SELECT id, name,
                        weight_1, weight_2, weight_3, weight_4, weight_5, weight_6, weight_7,
-                       active
+                       coef, active
                 FROM {$table_groups}
                 WHERE active = 1
             ", ARRAY_A);
@@ -106,15 +107,17 @@
                 return;
             }
 
-            // Побудувати items із квотами на сьогодні
+            // Побудувати items із квотами на сьогодні.
+            // quota — ЧИСТА вага (денна норма, без коефа), queue_weight — з коефом.
             $items = [];
             foreach ($groups as $g) {
                 $w = self::effective_weight_today($g, $dowN); // денний ліміт
                 if ($w > 0) {
                     $items[(int)$g['id']] = [
-                        'group_id' => (int)$g['id'],
-                        'name'     => (string)$g['name'],
-                        'quota'    => (int)$w,
+                        'group_id'     => (int)$g['id'],
+                        'name'         => (string)$g['name'],
+                        'quota'        => (int)$w,
+                        'queue_weight' => (int)self::queue_weight_today($g, $dowN),
                     ];
                 }
             }
@@ -150,8 +153,11 @@
                 foreach ($items as $gid => $it) {
                     $left = $it['quota'] - (int)($used[$gid] ?? 0);
                     if ($left > 0) {
-                        $pool[] = ['group_id'=>$gid, 'name'=>$it['name'], 'weight'=>$left];
-                        $totalW += $left;
+                        // черга — залишок квоти, зважений коефіцієнтом групи
+                        $ratio  = $it['quota'] > 0 ? ($it['queue_weight'] / $it['quota']) : 1.0;
+                        $weight = max(1, (int)round($left * $ratio));
+                        $pool[] = ['group_id'=>$gid, 'name'=>$it['name'], 'weight'=>$weight];
+                        $totalW += $weight;
                     }
                 }
                 if ($totalW <= 0 || empty($pool)) {
@@ -413,12 +419,14 @@
             $lead_ids   = [];
             $lead_names = [];
             for ($i = 1; $i <= $count; $i++) {
-                $name = sprintf('DemoLead_%03d', $i);
+                $name  = sprintf('DemoLead_%03d', $i);
+                $email = sprintf('demolead%03d@demo.local', $i);
+                $phone = '305' . str_pad((string)wp_rand(1000000, 9999999), 7, '0', STR_PAD_LEFT);
 
-                $wpdb->insert($t_leads, [
+                $lead_row = [
                     'name'              => $name,
-                    'email'             => sprintf('demolead%03d@demo.local', $i),
-                    'phone'             => '305' . str_pad((string)wp_rand(1000000, 9999999), 7, '0', STR_PAD_LEFT),
+                    'email'             => $email,
+                    'phone'             => $phone,
                     'est_ship_date'     => $ship,
                     'vehicle_year'      => 2020,
                     'vehicle_brand'     => 'Toyota',
@@ -430,12 +438,17 @@
                     'status'            => 'new',
                     'response_status'   => 'new',
                     'dispatch_method'   => 'cli_billing_test',
-                ], [
+                ];
+                // Нормалізовані ключі для пошуку дублів — у кінці, щоб не зсунути $formats
+                $lead_row += leadrouter_lead_norm_columns($phone, $email);
+
+                $wpdb->insert($t_leads, $lead_row, [
                     '%s', '%s', '%s', '%s',
                     '%d', '%s', '%s', '%s',
                     '%s', '%s', '%s',
                     '%s', '%s', '%s',
                     '%s', '%s', '%s', '%s',
+                    '%s', '%s',
                 ]);
 
                 $lid = (int)$wpdb->insert_id;
@@ -1124,12 +1137,238 @@
         // ===== helpers =====
 
         private static function effective_weight_today(array $row, int $dow) : int {
-            $base = isset($row['weight']) ? (int)$row['weight'] : 0;
-            $key  = 'weight_' . $dow;
-            if (array_key_exists($key, $row) && $row[$key] !== null && $row[$key] !== '') {
-                return max(0, (int)$row[$key]);
+            $key = 'weight_' . $dow;
+            if (!array_key_exists($key, $row) || $row[$key] === null || $row[$key] === '') {
+                return 0;
             }
-            return max(0, $base);
+
+            return max(0, (int)$row[$key]);
+        }
+
+        /** Вага у черзі = денна вага × коефіцієнт групи (коеф не міняє денної норми) */
+        private static function queue_weight_today(array $row, int $dow) : int {
+            $w    = self::effective_weight_today($row, $dow);
+            $coef = isset($row['coef']) ? (float)$row['coef'] : 1.0;
+            if ($coef <= 0) {
+                $coef = 1.0;
+            }
+
+            return max(0, (int)round($w * $coef));
+        }
+
+        /**
+         * Read-only симуляція shared-розподілу: віртуально жене n лідів через
+         * дефіцитний WRR групи. Нічого не відправляє і не пише в БД.
+         *
+         * ## OPTIONS
+         * [--n=<n>]
+         * : Скільки лідів прогнати (default 500)
+         *
+         * [--group=<post_id>]
+         * : post_id shared-групи. Якщо не задано — береться перша активна shared-група.
+         *
+         * ## EXAMPLES
+         *   wp leadrouter simulate-shared --n=500 --group=21525
+         */
+        public function simulate_shared( $args, $assoc ) {
+            global $wpdb;
+
+            $n_leads = isset($assoc['n']) ? max(1, (int)$assoc['n']) : 500;
+            $t_groups = $wpdb->prefix . 'leadrouter_groups';
+
+            $group_post_id = isset($assoc['group']) ? (int)$assoc['group'] : 0;
+            if ($group_post_id > 0) {
+                $group = $wpdb->get_row($wpdb->prepare(
+                    "SELECT id, post_id, name, mode, share_n, daily_volume FROM {$t_groups} WHERE post_id = %d",
+                    $group_post_id
+                ), ARRAY_A);
+            } else {
+                $group = $wpdb->get_row(
+                    "SELECT id, post_id, name, mode, share_n, daily_volume FROM {$t_groups} WHERE mode = 'shared' ORDER BY active DESC, id ASC LIMIT 1",
+                    ARRAY_A
+                );
+            }
+
+            if (!$group) {
+                WP_CLI::error('Shared-групу не знайдено. Вкажіть --group=<post_id>.');
+                return;
+            }
+            if ($group['mode'] !== 'shared') {
+                WP_CLI::error(sprintf('Група «%s» у режимі %s — симуляція лише для shared.', $group['name'], $group['mode']));
+                return;
+            }
+
+            $share_n = max(1, (int)$group['share_n']);
+            $dow     = (int)(new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('N');
+
+            $partners = LeadRouter_Slot_Planner::partners_for_group((int)$group['post_id'], $dow);
+            $partners = array_values(array_filter($partners, static fn($p) => (int)$p['limit'] > 0));
+
+            if (empty($partners)) {
+                WP_CLI::error('У групі немає активних партнерів з денним лімітом на сьогодні.');
+                return;
+            }
+
+            // Стан симуляції (нічого не пишемо в БД)
+            $state = [];
+            foreach ($partners as $p) {
+                $pid = (int)$p['id'];
+                $owner = $p['owner'] !== '' ? $p['owner'] : ('p' . $pid);
+                $state[$pid] = [
+                    'id'       => $pid,
+                    'label'    => $p['label'],
+                    'owner'    => $owner,
+                    'limit'    => (int)$p['limit'],
+                    'coef'     => class_exists('LR_Shared_Sync') ? LR_Shared_Sync::get_partner_coef($pid) : 1.0,
+                    'received' => 0,
+                ];
+            }
+
+            $issued  = 0;   // усього виданих копій
+            $per_lead = []; // скільки копій отримав кожен лід
+            $violations_owner = 0;
+            $violations_dup   = 0;
+
+            for ($lead = 1; $lead <= $n_leads; $lead++) {
+                $sum_weight = 0.0;
+                foreach ($state as $s) {
+                    if ($s['received'] < $s['limit']) {
+                        $sum_weight += $s['limit'] * $s['coef'];
+                    }
+                }
+                if ($sum_weight <= 0) {
+                    break; // усі ліміти вичерпані
+                }
+
+                $pool = [];
+                foreach ($state as $s) {
+                    if ($s['received'] >= $s['limit']) {
+                        continue;
+                    }
+                    $target_share = ($s['limit'] * $s['coef']) / $sum_weight;
+                    $pool[] = [
+                        'id'      => $s['id'],
+                        'owner'   => $s['owner'],
+                        'deficit' => $target_share * $issued - $s['received'],
+                        'left'    => $s['limit'] - $s['received'],
+                    ];
+                }
+
+                usort($pool, static function ($a, $b) {
+                    if (abs($a['deficit'] - $b['deficit']) > 0.000001) {
+                        return $b['deficit'] <=> $a['deficit'];
+                    }
+                    if ($a['left'] !== $b['left']) {
+                        return $b['left'] <=> $a['left'];
+                    }
+                    return $a['id'] <=> $b['id'];
+                });
+
+                $picked = [];
+                $owners = [];
+                foreach ($pool as $cand) {
+                    if (count($picked) >= $share_n) {
+                        break;
+                    }
+                    if (isset($owners[$cand['owner']])) {
+                        continue;
+                    }
+                    $owners[$cand['owner']] = true;
+                    $picked[] = $cand['id'];
+                }
+
+                if (count($picked) !== count(array_unique($picked))) {
+                    $violations_dup++;
+                }
+                if (count($owners) !== count($picked)) {
+                    $violations_owner++;
+                }
+
+                foreach ($picked as $pid) {
+                    $state[$pid]['received']++;
+                    $issued++;
+                }
+                $per_lead[] = count($picked);
+            }
+
+            WP_CLI::line(sprintf(
+                'Група «%s» (post_id %d): N = %d, L = %d, партнерів %d',
+                $group['name'],
+                (int)$group['post_id'],
+                $share_n,
+                (int)$group['daily_volume'],
+                count($state)
+            ));
+            WP_CLI::line(sprintf('Прогнано лідів: %d, видано копій: %d', count($per_lead), $issued));
+
+            $rows = [];
+            foreach ($state as $s) {
+                $rows[] = [
+                    'partner'  => $s['label'],
+                    'owner'    => $s['owner'],
+                    'coef'     => number_format($s['coef'], 2),
+                    'limit'    => $s['limit'],
+                    'received' => $s['received'],
+                    'left'     => $s['limit'] - $s['received'],
+                ];
+            }
+            WP_CLI\Utils\format_items('table', $rows, ['partner', 'owner', 'coef', 'limit', 'received', 'left']);
+
+            $full_leads = count(array_filter($per_lead, static fn($c) => $c === $share_n));
+            WP_CLI::line(sprintf('Лідів, що отримали рівно N = %d копій: %d з %d', $share_n, $full_leads, count($per_lead)));
+            WP_CLI::line(sprintf('Порушень «один лід — один партнер»: %d', $violations_dup));
+            WP_CLI::line(sprintf('Порушень «один лід — один власник»: %d', $violations_owner));
+
+            $over = 0;
+            foreach ($state as $s) {
+                if ($s['received'] > $s['limit']) {
+                    $over++;
+                }
+            }
+            WP_CLI::line(sprintf('Партнерів понад ліміт: %d', $over));
+        }
+
+        /**
+         * Друк плану слотів shared-групи текстом (перевірка планувальника).
+         *
+         * ## OPTIONS
+         * [--group=<post_id>]
+         * : post_id групи
+         *
+         * [--n=<n>]
+         * : Перекрити N (за замовчуванням — з налаштувань групи)
+         *
+         * [--l=<l>]
+         * : Перекрити L (за замовчуванням — з налаштувань групи)
+         *
+         * ## EXAMPLES
+         *   wp leadrouter slot-plan --group=21525
+         */
+        public function slot_plan( $args, $assoc ) {
+            global $wpdb;
+
+            $group_post_id = isset($assoc['group']) ? (int)$assoc['group'] : 0;
+            if ($group_post_id <= 0) {
+                WP_CLI::error('Вкажіть --group=<post_id>.');
+                return;
+            }
+
+            $row = $wpdb->get_row($wpdb->prepare(
+                "SELECT name, share_n, daily_volume FROM {$wpdb->prefix}leadrouter_groups WHERE post_id = %d",
+                $group_post_id
+            ), ARRAY_A);
+
+            $n = isset($assoc['n']) ? (int)$assoc['n'] : (int)($row['share_n'] ?? 0);
+            $l = isset($assoc['l']) ? (int)$assoc['l'] : (int)($row['daily_volume'] ?? 0);
+
+            $partners = LeadRouter_Slot_Planner::partners_for_group($group_post_id);
+            if (empty($partners)) {
+                WP_CLI::error('У групі немає активних партнерів з лімітом на сьогодні.');
+                return;
+            }
+
+            WP_CLI::line(sprintf('Група «%s» (post_id %d)', (string)($row['name'] ?? '—'), $group_post_id));
+            WP_CLI::line(LeadRouter_Slot_Planner::render_text(LeadRouter_Slot_Planner::plan($partners, $n, $l)));
         }
 
         private static function weighted_pick(array $items, int $totalW) : ?array {
@@ -1164,6 +1403,8 @@
     // ── Бойові команди (read-only симуляція розподілу) — реєструються ЗАВЖДИ ──
     WP_CLI::add_command('leadrouter simulate-proportion', ['LeadRouter_CLI', 'simulate_proportion']);
     WP_CLI::add_command('leadrouter simulate-capacity',   ['LeadRouter_CLI', 'simulate_capacity']);
+    WP_CLI::add_command('leadrouter simulate-shared',     ['LeadRouter_CLI', 'simulate_shared']);
+    WP_CLI::add_command('leadrouter slot-plan',           ['LeadRouter_CLI', 'slot_plan']);
 
     // ── DEV ONLY: тестові команди (фейкові дані / реальні Stripe-запити) ──
     // На продакшні (LEADROUTER_PRODUCTION === true) НЕ реєструються.

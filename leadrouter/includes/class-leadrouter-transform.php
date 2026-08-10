@@ -33,7 +33,7 @@ if (!class_exists('LeadRouter_Transform')) {
 
                 // 🕒 дати
                 case 'date_Ymd':      return self::dateFormatFlexible($value, 'Y-m-d');
-                case 'date_Ymd_slash': return self::dateFormatFlexible($value, 'Y/m/d');
+                case 'date_Ymd_slash': return self::dateFormatFlexible($value, 'Y/m/d'); // прод 03.08: Door to Door
                 case 'date_mdy':      return self::dateFormatFlexible($value, 'm/d/Y');
                 case 'date_mdy_dash': return self::dateFormatFlexible($value, 'm-d-Y'); // НОВЕ
 
@@ -53,7 +53,7 @@ if (!class_exists('LeadRouter_Transform')) {
 
                 // 🚚 тип транспорта Open/Closed
                 case 'map_transport_type': return self::mapTransportType($value);
-                case 'map_transport_type_open_enclosed': return self::mapTransportTypeOpenEnclosed($value);
+                case 'map_transport_type_open_enclosed': return self::mapTransportTypeOpenEnclosed($value); // прод 03.08
                 case 'map_transport_type_reverse': return self::toIntOrNull(self::mapTransportTypeReverse($value));
             }
         }
@@ -72,14 +72,6 @@ if (!class_exists('LeadRouter_Transform')) {
             return null;
         }
 
-        /** mapTransportTypeOpenEnclosed: maps transport type to Carlink expected values (Open/Enclosed) */
-        protected static function mapTransportTypeOpenEnclosed($value): ?string {
-            $v = mb_strtolower(trim((string)$value));
-            if ($v === '1' || $v === 1) return 'Open';
-            if ($v === '0' || $v === 0) return 'Enclosed';
-            return null;
-        }
-
         /**
          * map_transport_type_reverse: Преобразует значения типа транспорта в обратные.
          * Поддерживает варианты: 1, '1', 0, '0'.
@@ -91,6 +83,14 @@ if (!class_exists('LeadRouter_Transform')) {
             $v = mb_strtolower(trim((string)$value));
             if ($v === '1' || $v === 1) return 0;
             if ($v === '0' || $v === 0) return 1;
+            return null;
+        }
+
+        /** mapTransportTypeOpenEnclosed: maps transport type to Carlink expected values (Open/Enclosed) */
+        protected static function mapTransportTypeOpenEnclosed($value): ?string {
+            $v = mb_strtolower(trim((string)$value));
+            if ($v === '1' || $v === 1) return 'Open';
+            if ($v === '0' || $v === 0) return 'Enclosed';
             return null;
         }
                 

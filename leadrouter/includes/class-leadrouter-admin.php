@@ -40,6 +40,11 @@ class LeadRouter_Admin
             LR_Billing_Report::register();
         }
 
+        // Симулятор слотів: ассети + AJAX-перерахунок (нічого не пише)
+        if (class_exists('LR_Slot_Simulator')) {
+            LR_Slot_Simulator::register();
+        }
+
     }
 
 
@@ -126,7 +131,7 @@ class LeadRouter_Admin
                         'require_ok_json' => false,
                     ],
                     'door_to_door' => [
-                        'endpoint' => 'https://www.mavspanel.com/parser/post_processing.php?source=hpl1',
+                        'endpoint' => 'https://www.mavspanel.com/parser/post_processing.php?src=HPL1',
                         'auth_variant' => 'none',
                         'api_key' => '',
                         'api_key_header' => '',
@@ -157,6 +162,38 @@ class LeadRouter_Admin
             wp_enqueue_style('md_json_viewer_css', plugins_url('/assets/css/jquery.json-viewer.css', dirname(__FILE__)), array(), LEADROUTER_VERSION);
             wp_enqueue_style('md_admin_css3', plugins_url('/assets/css/md_admin.css', dirname(__FILE__)), array(), '2.0.1');
 
+            // Компактний вигляд таблиці лідів. Файл вантажиться завжди, бо в
+            // ньому ще й стилі перемикача, але ВСІ правила таблиці прив'язані
+            // до .lr-leads-compact — у класичному режимі цього класу немає,
+            // тож сторінка лишається такою, як була.
+            $compact_css = 'assets/css/lr-leads-compact.css';
+            $compact_ver = file_exists(LEADROUTER_PLUGIN_DIR . $compact_css)
+                ? (string)filemtime(LEADROUTER_PLUGIN_DIR . $compact_css)
+                : LEADROUTER_VERSION;
+
+            wp_enqueue_style(
+                'lr-leads-compact',
+                plugins_url('/' . $compact_css, dirname(__FILE__)),
+                ['md_admin_css3'],
+                $compact_ver
+            );
+            wp_enqueue_style('dashicons');
+
+            // розкриття контролу відправки в компактному режимі (лише показ/
+            // приховування — самі обробники живуть в admin.js)
+            $compact_js  = 'assets/js/lr-leads-compact.js';
+            $compact_jsv = file_exists(LEADROUTER_PLUGIN_DIR . $compact_js)
+                ? (string)filemtime(LEADROUTER_PLUGIN_DIR . $compact_js)
+                : LEADROUTER_VERSION;
+
+            wp_enqueue_script(
+                'lr-leads-compact',
+                plugins_url('/' . $compact_js, dirname(__FILE__)),
+                [],
+                $compact_jsv,
+                true
+            );
+
 
             wp_enqueue_script('md_datepicker_lib', plugins_url('/assets/js/datepicker/jquery-ui.min.js', dirname(__FILE__)), ['jquery'], LEADROUTER_VERSION);
             wp_enqueue_script('md_excellentexport', plugins_url('/assets/js/excellentexport.js', dirname(__FILE__)), [], LEADROUTER_VERSION);
@@ -165,7 +202,14 @@ class LeadRouter_Admin
 
 
             wp_enqueue_script('chart-js', 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js', [], '4.4.0', true);
-            wp_enqueue_script('leadrouter-admin-js', plugins_url('/assets/js/admin.js', dirname(__FILE__)), ['jquery'], LEADROUTER_VERSION);
+            // версія = mtime файла: будь-яка правка admin.js сама скидає кеш браузера
+            $lr_admin_js_path = dirname(__DIR__) . '/assets/js/admin.js';
+            wp_enqueue_script(
+                'leadrouter-admin-js',
+                plugins_url('/assets/js/admin.js', dirname(__FILE__)),
+                ['jquery'],
+                file_exists($lr_admin_js_path) ? (string)filemtime($lr_admin_js_path) : LEADROUTER_VERSION
+            );
 
 
             /*
@@ -187,44 +231,10 @@ class LeadRouter_Admin
                 'deleteLeadsCascadeAction' => 'leadrouter_delete_leads_cascade',
             ]);
 
-            // Панель статистики лідів (згортна) — Sent today (EST) + Status count
+            // Легасі-панель «Sent today / Status count» видалена разом зі своїм
+            // CSS/JS згортання — її замінила LR_Balance_Panel.
             wp_add_inline_style('md_admin_css3', '
-                .lr-leads-stats { margin: 10px 0 15px; }
-                .lr-leads-stats.is-collapsed { display: none; }
-                .lr-leads-stats__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; align-items: start; }
-                .lr-leads-stats__card { background: #fff; border: 1px solid #ccd0d4; border-radius: 4px; padding: 12px; }
-                .lr-leads-stats__card h3 { margin: 0 0 8px; font-size: 13px; color: #1d2327; }
-                .lr-leads-stats__card table { border: 0; }
-                .lr-leads-stats .lr-stats-num { text-align: right; font-variant-numeric: tabular-nums; width: 90px; }
-                .lr-leads-stats tfoot th { border-top: 1px solid #dcdcde; font-weight: 600; }
-                /* .mod-green у md_admin.css привʼязаний до старої розмітки шапки — дублюємо для панелі */
-                .lr-leads-stats .mod-green { color: #0b8a31; }
-                .lr-leads-stats .mod-error { color: #8f0202; }
-                .js-lr-stats-toggle { cursor: pointer; }
                 .lr-checked-anchor { display: inline-block; }
-            ');
-
-            wp_add_inline_script('jquery', '
-                jQuery(document).ready(function($) {
-                    var $panel  = $("#lr-leads-stats");
-                    var $btn    = $(".js-lr-stats-toggle");
-                    if (!$panel.length || !$btn.length) { return; }
-
-                    function apply(collapsed) {
-                        $panel.toggleClass("is-collapsed", collapsed);
-                        $btn.attr("aria-expanded", collapsed ? "false" : "true");
-                        $btn.find(".lr-stats-caret").text(collapsed ? "▶" : "▼");
-                    }
-
-                    apply(localStorage.getItem("lr_leads_stats_collapsed") === "true");
-
-                    $btn.on("click", function(e) {
-                        e.preventDefault();
-                        var collapsed = !$panel.hasClass("is-collapsed");
-                        apply(collapsed);
-                        localStorage.setItem("lr_leads_stats_collapsed", collapsed);
-                    });
-                });
             ');
 
             wp_add_inline_style('md_admin_css3', '
@@ -350,15 +360,25 @@ class LeadRouter_Admin
             LR_Billing_Report::register_menu();
         }
 
+        // Пісочниця плану слотів (LeadRouter → Симулятор слотів)
+        if (class_exists('LR_Slot_Simulator')) {
+            LR_Slot_Simulator::register_menu();
+        }
+
+        // Пункт «Налаштування» реєструє контейнер Carbon Fields
+        // (set_page_file('leadrouter-settings') у leadrouter_create_custom_fields).
+        // Окремої реєстрації тут бути не повинно — інакше в меню два однакові пункти.
+
     }
 
     public static function render_dashboard()
     {
         echo '<div class="wrap"><h1>LeadRouter</h1>';
 
-
-        LeadRouter_Leads_Stats::render();
-
+        // Панель балансування: факт/план/відхилення + inline-коефіцієнти
+        if (class_exists('LR_Balance_Panel')) {
+            LR_Balance_Panel::render();
+        }
 
         echo '</div>';
     }
@@ -420,42 +440,17 @@ class LeadRouter_Admin
 
     public static function render_leads()
     {
+        // вибір вигляду (classic|compact) і кількості на сторінку — до
+        // prepare_items, бо від них залежать колонки й вибірка
+        LeadRouter_Leads_Table::maybe_save_view_mode();
+        LeadRouter_Leads_Table::maybe_save_per_page();
+
         $table = new LeadRouter_Leads_Table();
         $table->prepare_items();
 
 
-        $status_lead_count = self::count_leads_by_status();
-        $sent_lead_count = self::count_sent_leads_today();
-
-        $sent_lead_by_group = self::count_sent_leads_today_by_groups();
-
-
-        // ── Рядки таблиці «Status count (all time)» ──
-        // Статус 'sent' навмисно не показуємо (як і було раніше).
-        $status_rows_html = '';
-        $status_total     = 0;
-        foreach ($status_lead_count as $status => $count) {
-
-            $filtered = ['sent'];
-            if (in_array($status, $filtered)) {
-                continue;
-            }
-
-            $status_total += (int) $count;
-
-            $status_tmp = $status !== ''
-                ? mb_strtoupper(mb_substr($status, 0, 1)) . mb_substr($status, 1)
-                : '—';
-
-            $status_rows_html .= '<tr><td>' . esc_html($status_tmp) . '</td>'
-                . '<td class="lr-stats-num"><b class="lead-status-count-' . esc_attr($status) . '">'
-                . (int) $count . '</b></td></tr>';
-        }
-        if ($status_rows_html === '') {
-            $status_rows_html = '<tr><td colspan="2"><em>' . esc_html__('Немає даних', 'leadrouter') . '</em></td></tr>';
-        }
-
-
+        // Легасі-блок «Sent today (EST) / Status count» прибрано — його роль
+        // виконує панель балансування (LR_Balance_Panel) нижче.
         global $wpdb;
 
         $sql = "
@@ -476,68 +471,21 @@ class LeadRouter_Admin
             $partners_options_html .= '<option value="' . $partner['ID'] . '">' . $partner['post_title'] . '</option>';
         }
 
-        // ── Рядки таблиці «Sent today (EST)» по партнерах ──
-        $sent_rows_html = '';
-        $sent_total     = 0;
-        foreach ($sent_lead_by_group as $key => $item) {
-            $sent_total += (int) $item;
-            $pname = get_the_title($key) ?: ('#' . (int) $key);
-            $sent_rows_html .= '<tr><td>' . esc_html($pname) . '</td>'
-                . '<td class="lr-stats-num"><b class="mod-green">' . (int) $item . '</b></td></tr>';
-        }
-        if ($sent_rows_html === '') {
-            $sent_rows_html = '<tr><td colspan="2"><em>' . esc_html__('Сьогодні ще нічого не відправлено', 'leadrouter') . '</em></td></tr>';
-        }
-
         echo '<div class="wrap">
             <div class="md_page_header">
             <div class="md_flex" style="align-items: baseline">
             <h1>' . esc_html__('Leads', 'leadrouter') . '</h1>
             <button style="display: none" class="js-show-today-limit-panel page-title-action">Show today limits</button>
             <button class="js-show-report-panel page-title-action">Show report panel</button>
-            <button type="button" class="page-title-action js-lr-stats-toggle" aria-expanded="true" aria-controls="lr-leads-stats">'
-            . '📊 ' . esc_html__('Stats', 'leadrouter') . ' <span class="lr-stats-caret">▼</span></button>
             <div class="lr-checked-anchor"></div>
             </div>
             <hr />
             </div>';
 
-        // ── Згортна панель зі статистикою (стан памʼятається в localStorage) ──
-        echo '<div class="lr-leads-stats" id="lr-leads-stats">
-            <div class="lr-leads-stats__grid">
-
-                <div class="lr-leads-stats__card">
-                    <h3>' . esc_html__('Sent today (EST)', 'leadrouter') . '</h3>
-                    <table class="widefat striped">
-                        <thead><tr>
-                            <th>' . esc_html__('Партнер', 'leadrouter') . '</th>
-                            <th class="lr-stats-num">' . esc_html__('Лідів', 'leadrouter') . '</th>
-                        </tr></thead>
-                        <tbody>' . $sent_rows_html . '</tbody>
-                        <tfoot><tr>
-                            <th>' . esc_html__('Разом', 'leadrouter') . '</th>
-                            <th class="lr-stats-num">' . (int) $sent_total . '</th>
-                        </tr></tfoot>
-                    </table>
-                </div>
-
-                <div class="lr-leads-stats__card">
-                    <h3>' . esc_html__('Status count (all time)', 'leadrouter') . '</h3>
-                    <table class="widefat striped">
-                        <thead><tr>
-                            <th>' . esc_html__('Статус', 'leadrouter') . '</th>
-                            <th class="lr-stats-num">' . esc_html__('К-сть', 'leadrouter') . '</th>
-                        </tr></thead>
-                        <tbody>' . $status_rows_html . '</tbody>
-                        <tfoot><tr>
-                            <th>' . esc_html__('Разом', 'leadrouter') . '</th>
-                            <th class="lr-stats-num">' . (int) $status_total . '</th>
-                        </tr></tfoot>
-                    </table>
-                </div>
-
-            </div>
-        </div>';
+        // ── Панель балансування (та сама, що на головній сторінці плагіна) ──
+        if (class_exists('LR_Balance_Panel')) {
+            LR_Balance_Panel::render();
+        }
 
         echo '<div class="md-report-panel"
              style="display:none; padding: 10px 15px; margin-bottom: 20px;">
@@ -1283,6 +1231,8 @@ class LeadRouter_Admin
 
         $lead_id = isset($_POST['lead_id']) ? (int)$_POST['lead_id'] : 0;
         $group_id = isset($_POST['group_id']) ? (int)$_POST['group_id'] : 0;
+        $partner_id = isset($_POST['partner_id']) ? (int)$_POST['partner_id'] : 0;
+        $force_dup = !empty($_POST['force_dup']);
 
         if ($lead_id <= 0) {
             wp_send_json_error(['message' => 'lead_id missing'], 400);
@@ -1292,26 +1242,84 @@ class LeadRouter_Admin
             wp_send_json_error(['message' => 'LeadRouter_Flow not loaded'], 500);
         }
 
+        // М'які перевірки (дубль + обмеження партнера): не блокуємо, а просимо
+        // підтвердження в UI. force_dup=1 — адмін уже підтвердив, шлемо без питань.
+        if (!$force_dup) {
+            $confirm = [];
+
+            if (class_exists('LeadRouter_Cron_New_Leads')) {
+                $dup = LeadRouter_Cron_New_Leads::duplicate_probe($lead_id);
+                if ($dup !== null) {
+                    $confirm['duplicate_of'] = (int)$dup['lead_id'];
+                    $confirm['matched_by']   = (string)$dup['matched_by'];
+                }
+            }
+
+            if ($partner_id > 0 && class_exists('LeadRouter_Partners')) {
+                $warnings = LeadRouter_Partners::manual_send_warnings($partner_id);
+                if (!empty($warnings)) {
+                    $confirm['partner_warnings'] = $warnings;
+                }
+            }
+
+            if (!empty($confirm)) {
+                wp_send_json_success(array_merge([
+                    'dup_confirm_required' => true,
+                    'lead_id'              => $lead_id,
+                ], $confirm));
+            }
+        }
+
         $opts = [
             'group_meta_key' => '_leadrouter_partner_group',
             'statuses' => ['queued', 'sent', 'accepted'],
             'initial_status' => 'sent',
-            'dispatch_method' => 'manual_bulk',
+            // «In flow» = ручний перезапуск звичайного потоку (як крон нових
+            // лідів): WRR-квота групи, ліміти й години партнерів ДІЮТЬ.
+            // manual_flow не входить у force-списки Dispatcher_Eff/Partners.
+            'dispatch_method' => 'manual_flow',
             'queue_if_closed' => true,
         ];
 
-        if ($group_id > 0) {
+        if ($partner_id > 0) {
+            // Явний вибір партнера — усвідомлений форс адміна, як і було
+            $opts['force_partner_id'] = $partner_id;
+            $opts['dispatch_method'] = 'manual_bulk';
+        } elseif ($group_id > 0) {
+            // Явний вибір групи — теж форс (квоти/ліміти не блокують)
             $opts['force_group_post_id'] = $group_id;
+            $opts['dispatch_method'] = 'manual_bulk';
         }
 
         $result = LeadRouter_Flow::dispatch_broadcast($lead_id, $opts);
 
         // If dispatch returns WP_Error
         if (is_wp_error($result)) {
-            wp_send_json_error([
+            $code    = (string)$result->get_error_code();
+            $payload = [
                 'message' => $result->get_error_message(),
-                'code' => $result->get_error_code(),
-            ], 500);
+                'code'    => $code,
+            ];
+
+            // Після цих кодів Flow вже перевів лід у await (звичайний потік:
+            // квота групи вичерпана / партнери закриті чи без ліміту).
+            // Показуємо адміну зрозуміле пояснення + свіжий рядок таблиці,
+            // а не голий код помилки — і не фейковий успіх.
+            $await_codes = ['no_capacity_today', 'weight_zero', 'no_active_groups', 'no_partners_in_all_groups', 'no_available_partners_now'];
+            if (in_array($code, $await_codes, true)) {
+                $payload['message'] = sprintf(
+                    /* translators: %s — причина, чому лід не відправлено */
+                    __('Не відправлено: %s Лід переведено у чергу await — крон повторить спробу.', 'leadrouter'),
+                    rtrim($result->get_error_message(), '.') . '.'
+                );
+                if (class_exists('LeadRouter_Leads_Table')) {
+                    $t = new LeadRouter_Leads_Table();
+                    $payload['row_html'] = $t->render_row_html_by_lead_id($lead_id);
+                }
+                wp_send_json_error($payload); // 200: JS покаже повідомлення і оновить рядок
+            }
+
+            wp_send_json_error($payload, 500);
         }
 
         // Update lead status + sent_at (per your requirement)
@@ -1339,7 +1347,7 @@ class LeadRouter_Admin
         wp_send_json_success([
             'lead_id' => $lead_id,
             'group_id' => $group_id,
-            'sent_at' => $now,
+            'sent_at' => current_time('mysql'),
             'result' => $result,
             'row_html' => $row_html,
         ]);
@@ -1361,6 +1369,8 @@ class LeadRouter_Admin
         $lead_ids = array_values(array_filter(array_map('intval', $lead_ids)));
 
         $group_id = isset($_POST['group_id']) ? (int)$_POST['group_id'] : 0;
+        $partner_id = isset($_POST['partner_id']) ? (int)$_POST['partner_id'] : 0;
+        $force_dup = !empty($_POST['force_dup']);
 
         if (empty($lead_ids)) {
             wp_send_json_error(['message' => 'No leads selected'], 400);
@@ -1368,6 +1378,40 @@ class LeadRouter_Admin
 
         if (!class_exists('LeadRouter_Flow')) {
             wp_send_json_error(['message' => 'LeadRouter_Flow not loaded'], 500);
+        }
+
+        // М'які перевірки: дублі серед вибраних + обмеження партнера-адресата.
+        // Якщо щось є — повертаємо на підтвердження (force_dup=1 шле без питань).
+        if (!$force_dup) {
+            $confirm = [];
+
+            if (class_exists('LeadRouter_Cron_New_Leads')) {
+                $duplicates = [];
+                foreach ($lead_ids as $lid) {
+                    $dup = LeadRouter_Cron_New_Leads::duplicate_probe($lid);
+                    if ($dup !== null) {
+                        $duplicates[] = [
+                            'lead_id'      => $lid,
+                            'duplicate_of' => (int)$dup['lead_id'],
+                            'matched_by'   => (string)$dup['matched_by'],
+                        ];
+                    }
+                }
+                if (!empty($duplicates)) {
+                    $confirm['duplicates'] = $duplicates;
+                }
+            }
+
+            if ($partner_id > 0 && class_exists('LeadRouter_Partners')) {
+                $warnings = LeadRouter_Partners::manual_send_warnings($partner_id);
+                if (!empty($warnings)) {
+                    $confirm['partner_warnings'] = $warnings;
+                }
+            }
+
+            if (!empty($confirm)) {
+                wp_send_json_success(array_merge(['dup_confirm_required' => true], $confirm));
+            }
         }
 
         global $wpdb;
@@ -1378,11 +1422,17 @@ class LeadRouter_Admin
             'group_meta_key' => '_leadrouter_partner_group',
             'statuses' => ['queued', 'sent', 'accepted'],
             'initial_status' => 'sent',
-            'dispatch_method' => 'manual_bulk',
+            // «In flow» = звичайний потік з усіма перевірками (див. одиночний
+            // хендлер вище); форс лишається тільки для явного вибору нижче.
+            'dispatch_method' => 'manual_flow',
             'queue_if_closed' => true,
         ];
-        if ($group_id > 0) {
+        if ($partner_id > 0) {
+            $opts['force_partner_id'] = $partner_id;
+            $opts['dispatch_method'] = 'manual_bulk';
+        } elseif ($group_id > 0) {
             $opts['force_group_post_id'] = $group_id;
+            $opts['dispatch_method'] = 'manual_bulk';
         }
 
 
@@ -1403,7 +1453,13 @@ class LeadRouter_Admin
 
             if (is_wp_error($result)) {
                 $r['message'] = $result->get_error_message();
+                $r['code']    = $result->get_error_code();
                 $results[$lead_id] = $r;
+                // При «In flow» лід після відмови вже в await — оновлюємо
+                // рядок таблиці і для невдалих, щоб адмін бачив новий статус
+                if ($table && method_exists($table, 'render_row_html_by_lead_id')) {
+                    $rows_html[$lead_id] = $table->render_row_html_by_lead_id($lead_id);
+                }
                 continue;
             }
 

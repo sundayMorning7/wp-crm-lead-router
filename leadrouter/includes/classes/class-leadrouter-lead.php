@@ -54,6 +54,9 @@ class LeadRouter_Leads {
             'partner_id'        => null,
         ]);
 
+        // Нормалізовані ключі для пошуку дублів (leads.phone_norm / email_norm)
+        $row += leadrouter_lead_norm_columns($row['phone'] ?? '', $row['email'] ?? '');
+
         $ok = self::$db->insert($table, $row, [
             '%s','%s','%s','%s','%d','%s','%s','%s',
             '%s','%s','%s','%s','%s','%s','%s',

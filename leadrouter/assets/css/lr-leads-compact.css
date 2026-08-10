@@ -1,0 +1,410 @@
+/* Компактний вигляд таблиці лідів (LeadRouter → Ліди).
+   Підключається ЛИШЕ в режимі compact; усі правила прив'язані до
+   .lr-leads-compact, щоб нічого не протекло в класичний вигляд. */
+
+/* ── перемикач режиму в шапці ── */
+.lr-view-switch {
+    display: inline-flex;
+    margin-left: 12px;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    overflow: hidden;
+    vertical-align: middle;
+}
+
+.lr-view-tab {
+    padding: 3px 12px;
+    font-size: 12px;
+    line-height: 20px;
+    text-decoration: none;
+    color: #50575e;
+    background: #fff;
+}
+
+.lr-view-tab + .lr-view-tab {
+    border-left: 1px solid #dcdcde;
+}
+
+.lr-view-tab:hover {
+    background: #f6f7f7;
+    color: #1d2327;
+}
+
+.lr-view-tab.is-active {
+    background: #2271b1;
+    color: #fff;
+    font-weight: 600;
+}
+
+/* ── таблиця ── */
+.wp-list-table.lr-leads-compact {
+    table-layout: fixed;
+}
+
+.lr-leads-compact th,
+.lr-leads-compact td {
+    vertical-align: top;
+    padding: 9px 10px;
+}
+
+.lr-leads-compact th {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: #8c8f94;
+}
+
+/* Ширини: найбільше — «Партнерам», решта по потребі. Саме перекіс ширин, а не
+   стилі, робив рядок на 350px у класичному вигляді.
+   Два нюанси, на які пішов час:
+     1) селектор навмисно довгий — коротший (.lr-leads-compact .column-id)
+        перебиває md_admin.css, і ширини мовчки ігноруються;
+     2) сума = 100%: при table-layout:fixed браузер розкидає нерозподілений
+        залишок пропорційно між УСІМА колонками, тож «колонка без ширини»
+        лишається вузькою замість того, щоб забрати решту. */
+table.wp-list-table.lr-leads-compact th.column-id         { width: 5%; }
+table.wp-list-table.lr-leads-compact th.column-contact    { width: 19%; }
+table.wp-list-table.lr-leads-compact th.column-route      { width: 17%; }
+table.wp-list-table.lr-leads-compact th.column-created_at { width: 8%; }
+table.wp-list-table.lr-leads-compact th.column-group_with_partner { width: 29%; }
+table.wp-list-table.lr-leads-compact th.column-status     { width: 10%; }
+table.wp-list-table.lr-leads-compact th.column-actions    { width: 12%; }
+
+/* коли «Створено» сховано — його частку віддаємо партнерам */
+@media screen and (max-width: 1400px) {
+    table.wp-list-table.lr-leads-compact th.column-group_with_partner { width: 36%; }
+}
+
+.lr-leads-compact .lr-dim  { color: #a7aaad; }
+.lr-leads-compact .lr-op   { color: #1e8a52; }
+.lr-leads-compact .lr-inop { color: #d63638; font-weight: 600; }
+
+/* ── контакт: стовпчик ── */
+.lr-leads-compact .lr-c-contact {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.lr-leads-compact .lr-c-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lr-leads-compact .lr-c-tel,
+.lr-leads-compact .lr-c-mail {
+    font-size: 12px;
+    color: #646970;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lr-leads-compact .lr-c-tel {
+    font-variant-numeric: tabular-nums;
+}
+
+.lr-leads-compact .lr-c-tel:hover,
+.lr-leads-compact .lr-c-mail:hover {
+    color: #2271b1;
+}
+
+.lr-leads-compact .lr-c-utm {
+    align-self: flex-start;
+    margin-top: 2px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #4338ca;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    white-space: nowrap;
+}
+
+/* ── маршрут і авто: дві лінійки ── */
+.lr-leads-compact .lr-c-route {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lr-leads-compact .lr-arrow {
+    color: #a7aaad;
+    margin: 0 5px;
+}
+
+.lr-leads-compact .lr-c-veh {
+    margin-top: 2px;
+    font-size: 12px;
+    color: #646970;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── створено / відправлено ── */
+.lr-leads-compact .lr-c-when {
+    font-size: 12px;
+    color: #646970;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.lr-leads-compact .lr-c-when b {
+    display: block;
+    color: #1d2327;
+    font-weight: 600;
+}
+
+.lr-leads-compact .lr-c-sent {
+    display: block;
+    margin-top: 2px;
+}
+
+/* ── група і партнери: повний перелік чіпами ── */
+.lr-leads-compact .lr-c-grp {
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+.lr-leads-compact .lr-c-grp + .lr-c-chips + .lr-c-grp {
+    margin-top: 8px;
+}
+
+.lr-leads-compact .lr-c-gname { font-weight: 600; }
+.lr-leads-compact .lr-c-gcnt  { color: #a7aaad; margin-left: 4px; }
+
+.lr-leads-compact .lr-c-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+}
+
+.lr-leads-compact .lr-chip {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 5px;
+    font-size: 11px;
+    line-height: 17px;
+    border: 1px solid #dcdcde;
+    background: #f6f7f7;
+    color: #3c434a;
+    white-space: nowrap;
+}
+
+.lr-leads-compact .lr-chip.is-ok {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+    color: #14532d;
+}
+
+.lr-leads-compact .lr-chip.is-err {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #7f1d1d;
+}
+
+.lr-leads-compact .lr-chip.is-err::after { content: " ⚠"; }
+
+/* ── статус + копії ── */
+.lr-leads-compact .lr-pill {
+    display: inline-block;
+    padding: 1px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    border: 1px solid #dcdcde;
+    background: #f6f7f7;
+    color: #50575e;
+}
+
+.lr-leads-compact .lr-pill.is-ok   { background: #f0fdf4; color: #14532d; border-color: #bbf7d0; }
+.lr-leads-compact .lr-pill.is-warn { background: #fffbeb; color: #78350f; border-color: #fde68a; }
+.lr-leads-compact .lr-pill.is-err  { background: #fef2f2; color: #7f1d1d; border-color: #fecaca; }
+.lr-leads-compact .lr-pill.is-mut  { background: #f6f7f7; color: #646970; border-color: #dcdcde; }
+
+.lr-leads-compact .lr-c-copies {
+    margin-top: 5px;
+    font-size: 12px;
+    color: #646970;
+    font-variant-numeric: tabular-nums;
+}
+
+.lr-leads-compact .lr-c-copies b { color: #1d2327; }
+
+.lr-leads-compact .lr-c-note {
+    display: block;
+    margin-top: 3px;
+    font-size: 11px;
+    color: #646970;
+}
+
+.lr-leads-compact .lr-dots {
+    display: flex;
+    gap: 3px;
+    margin-top: 3px;
+}
+
+.lr-leads-compact .lr-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #d1d5db;
+}
+
+.lr-leads-compact .lr-dot.is-on { background: #1e8a52; }
+
+/* ── рядки без чергування фону: смуги заважають читати рядок,
+      у якому вміст і так згруповано блоками ── */
+table.wp-list-table.lr-leads-compact > tbody > tr,
+table.wp-list-table.lr-leads-compact.striped > tbody > :nth-child(odd),
+table.wp-list-table.lr-leads-compact > tbody > :nth-child(odd) {
+    background-color: #fff;
+}
+
+table.wp-list-table.lr-leads-compact > tbody > tr:hover {
+    background-color: #f6f7f7;
+}
+
+/* ── дії: три іконки в ряд, відправка — поповером ── */
+.lr-leads-compact .lr-c-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.lr-leads-compact .lr-c-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    background: #fff;
+    color: #646970;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.lr-leads-compact .lr-c-icon .dashicons {
+    width: 16px;
+    height: 16px;
+    font-size: 16px;
+    line-height: 16px;
+}
+
+.lr-leads-compact .lr-c-icon:hover {
+    border-color: #8c8f94;
+    color: #1d2327;
+    background: #f6f7f7;
+}
+
+.lr-leads-compact .lr-c-icon.is-danger:hover {
+    border-color: #d63638;
+    color: #d63638;
+    background: #fef2f2;
+}
+
+.lr-leads-compact .lr-c-icon.is-open {
+    border-color: #2271b1;
+    color: #2271b1;
+    background: #f0f6fc;
+}
+
+/* поповер із наявним контролом відправки */
+.lr-leads-compact .lr-c-send {
+    position: relative;
+}
+
+.lr-leads-compact .lr-c-send-pop {
+    position: absolute;
+    z-index: 20;
+    top: 32px;
+    right: 0;
+    min-width: 240px;
+    padding: 10px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .15);
+}
+
+.lr-leads-compact .lr-c-send-pop[hidden] {
+    display: none;
+}
+
+.lr-leads-compact .lr-c-send-pop .lr-group-select {
+    max-width: 100%;
+    font-size: 12px;
+}
+
+.lr-leads-compact .lr-c-send-pop .md_flex {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+/* ── адаптив ──
+   до 1400px ховаємо «Створено» (дата є в логах ліда),
+   до 900px  рядок стає карткою: комірки в стовпчик із підписами. */
+@media screen and (max-width: 1400px) {
+    table.wp-list-table.lr-leads-compact th.column-created_at,
+    table.wp-list-table.lr-leads-compact td.column-created_at {
+        display: none;
+    }
+}
+
+@media screen and (max-width: 900px) {
+    table.wp-list-table.lr-leads-compact thead,
+    table.wp-list-table.lr-leads-compact tfoot {
+        display: none;
+    }
+
+    table.wp-list-table.lr-leads-compact,
+    table.wp-list-table.lr-leads-compact tbody,
+    table.wp-list-table.lr-leads-compact tbody tr,
+    table.wp-list-table.lr-leads-compact tbody td {
+        display: block;
+        width: auto;
+    }
+
+    table.wp-list-table.lr-leads-compact tbody tr {
+        border-bottom: 1px solid #dcdcde;
+        padding: 8px 12px;
+    }
+
+    table.wp-list-table.lr-leads-compact tbody td {
+        padding: 3px 0;
+        border: 0;
+    }
+
+    table.wp-list-table.lr-leads-compact tbody td::before {
+        content: attr(data-colname);
+        display: block;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        color: #a7aaad;
+        font-weight: 700;
+    }
+
+    table.wp-list-table.lr-leads-compact td.column-created_at {
+        display: block;
+    }
+
+    .lr-leads-compact .lr-c-route,
+    .lr-leads-compact .lr-c-veh,
+    .lr-leads-compact .lr-c-mail {
+        white-space: normal;
+    }
+}

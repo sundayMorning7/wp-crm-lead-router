@@ -34,6 +34,11 @@ class LeadRouter_Dispatcher_Eff
         $dow = (int)$now->format('N'); // 1..7
         $assigned_at = $now->format('Y-m-d H:i:s');
 
+        // Примусові режими: група призначається навіть без вільної квоти/партнерів.
+        // Ключ необов'язковий у $opts — тоді працює звичайний режим.
+        $dispatch_method = (string)($opts['dispatch_method'] ?? '');
+        $force_mode = in_array($dispatch_method, ['manual_bulk', 'auto_cron_error_lead'], true);
+
         [$day_start, $day_end] = self::today_window_mysql_est($now);
 
         // === КРОК 0. Перевірка чи настав новий день ===
@@ -42,7 +47,7 @@ class LeadRouter_Dispatcher_Eff
         // Витягнути всі активні групи
         $groups = $wpdb->get_results("
         SELECT id, post_id, name,
-               eff,
+               eff, coef, mode, overflow_on, overflow_cap,
                weight_1, weight_2, weight_3, weight_4, weight_5, weight_6, weight_7
         FROM {$table_groups}
         WHERE active = 1
@@ -101,9 +106,47 @@ class LeadRouter_Dispatcher_Eff
             $assigned_today[(int)$r['group_id']] = (int)$r['cnt'];
         }
 
+        // Для shared-груп джерело квоти інше: скільки НОВИХ лідів група
+        // прийняла сьогодні. Рахуємо лише лідів, чиє ПЕРШЕ призначення в цій
+        // групі потрапляє в сьогоднішнє вікно: досилка копій по вчорашніх
+        // лідах створює нові рядки assignments, але свою квоту такий лід уже
+        // заплатив у день входу в групу — вдруге її не тарифікуємо (dispatch
+        // для topup свідомо оминає WRR саме з цієї причини). Раніше рахувались
+        // УСІ рядки вікна: 09.08 ранкові досилки 18 суботніх лідів з'їли 18 із
+        // 50 слотів квоти, і група закрилась о 17:09 з напівпорожніми лімітами.
+        $table_assignments = $wpdb->prefix . 'leadrouter_lead_assignments';
+        $shared_rows = $wpdb->get_results(
+            $wpdb->prepare("
+        SELECT a.group_id, COUNT(DISTINCT a.lead_id) AS cnt
+        FROM {$table_assignments} a
+        INNER JOIN {$table_groups} g ON g.id = a.group_id AND g.mode = 'shared'
+        WHERE a.created_at BETWEEN %s AND %s
+          AND NOT EXISTS (
+              SELECT 1
+                FROM {$table_assignments} b
+               WHERE b.group_id   = a.group_id
+                 AND b.lead_id    = a.lead_id
+                 AND b.created_at < %s
+          )
+        GROUP BY a.group_id
+    ", $day_start, $day_end, $day_start),
+            ARRAY_A
+        ) ?: [];
+
+        foreach ($shared_rows as $r) {
+            $assigned_today[(int)$r['group_id']] = (int)$r['cnt'];
+        }
+
 
 
         // КРОК 2. Обчислення eff_tmp
+        //
+        // ВАЖЛИВО про коефіцієнт групи (план §1 п.7): він зсуває ЧЕРГУ, а не
+        // денну норму. Тому:
+        //   - у WRR-арифметику (eff_tmp, sumW) іде вага З коефіцієнтом;
+        //   - денна квота (cnt < w) перевіряється по ЧИСТІЙ вазі weight_today.
+        // Тобто група з коеф 1.5 добирає свою норму раніше протягом дня, але
+        // за день усе одно не отримає більше, ніж weight_today.
         $sumW = 0;
         $eligible = [];
         foreach ($groups as $g) {
@@ -111,18 +154,28 @@ class LeadRouter_Dispatcher_Eff
             $cnt = $assigned_today[(int)$g['id']] ?? 0;
 
             if ($w > 0 && $cnt < $w) {
-                $g['weight_today'] = (int)$w;
-                $g['eff_tmp']      = (int)$g['eff'] + (int)$w;
+                $coef  = self::group_coef($g);
+                $w_eff = max(0, (int)round($w * $coef));
+
+                $g['weight_today']     = (int)$w;      // чиста вага = денна норма
+                $g['weight_today_eff'] = $w_eff;       // вага у черзі (з коефом)
+                $g['eff_tmp']          = (int)$g['eff'] + $w_eff;
                 $eligible[] = $g;
-                $sumW += (int)$w;
+                $sumW += $w_eff;
             }
         }
 
 
-        if (empty($eligible) && $opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
+        if (empty($eligible) && !$force_mode) {
+            // М'яка квота: перш ніж здатися, пробуємо shared-групи з overflow
+            $ov = self::try_overflow_dispatch($groups, $assigned_today, $dow, $lead_id, $assigned_at, $opts, $table_logs);
+            if ($ov !== null) {
+                return $ov;
+            }
+
             return new WP_Error('no_capacity_today', 'All groups reached today’s capacity (EST).');
         }
-        if ($sumW <= 0 && $opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
+        if ($sumW <= 0 && !$force_mode) {
             return new WP_Error('weight_zero', 'All effective weights are zero for today (EST).');
         }
 
@@ -153,7 +206,14 @@ class LeadRouter_Dispatcher_Eff
 
 
 
-        if (!$picked && $opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
+        if (!$picked && !$force_mode) {
+            // Квота десь ще є, але партнерів у eligible-групах немає —
+            // overflow-групи можуть мати вільних партнерів понад свою квоту
+            $ov = self::try_overflow_dispatch($groups, $assigned_today, $dow, $lead_id, $assigned_at, $opts, $table_logs);
+            if ($ov !== null) {
+                return $ov;
+            }
+
             return new WP_Error('no_partners_in_all_groups', 'No available partners found in any eligible group right now.');
         }
 
@@ -245,6 +305,113 @@ class LeadRouter_Dispatcher_Eff
 
 
 
+    /**
+     * М'яка квота (overflow) для shared-груп — fallback, коли звичайний WRR
+     * не знайшов групу (квоти вичерпані або в eligible-групах немає партнерів).
+     *
+     * Кандидат: активна shared-група з overflow_on=1 і вагою дня > 0, чия
+     * квота ВЖЕ вичерпана (cnt >= w; інакше вона була в eligible і її партнерів
+     * щойно перевіряли) і чий переліміт ще під стелею (overflow_cap, 0 = без
+     * стелі). Тверда межа — ємність партнерів: available_in_group з усіма
+     * перевірками годин/лімітів.
+     *
+     * Свідомо НЕ чіпаємо eff: overflow — добір поверх плану, а не участь у
+     * WRR, тож плановий баланс груп не перекошується ні сьогодні, ні завтра.
+     * У лог пишемо статус group_assigned_overflow (для AK/HI лишається
+     * group_assigned_excluded_state — там eff і так не бере участі).
+     *
+     * @return array|null null — overflow не спрацював, віддаємо звичайну помилку
+     */
+    private static function try_overflow_dispatch(
+        array $groups,
+        array $assigned_today,
+        int $dow,
+        int $lead_id,
+        string $assigned_at,
+        array $opts,
+        string $table_logs
+    ): ?array {
+        global $wpdb;
+
+        $candidates = [];
+        foreach ($groups as $g) {
+            if (($g['mode'] ?? 'classic') !== 'shared' || empty($g['overflow_on'])) {
+                continue;
+            }
+
+            $w = self::effective_weight_today($g, $dow);
+            if ($w <= 0) {
+                continue;
+            }
+
+            $cnt = $assigned_today[(int)$g['id']] ?? 0;
+            if ($cnt < $w) {
+                continue; // квота ще не вибрана — група і так була в eligible
+            }
+
+            $cap = max(0, (int)($g['overflow_cap'] ?? 0));
+            if ($cap > 0 && ($cnt - $w) >= $cap) {
+                continue; // стеля overflow досягнута
+            }
+
+            $g['weight_today'] = $w;
+            $g['over_by']      = $cnt - $w;
+            $candidates[] = $g;
+        }
+
+        if (empty($candidates)) {
+            return null;
+        }
+
+        // Найменш перевантажена першою; при рівності — стабільний порядок за id
+        usort($candidates, static function ($a, $b) {
+            if ((int)$a['over_by'] !== (int)$b['over_by']) {
+                return (int)$a['over_by'] <=> (int)$b['over_by'];
+            }
+            return (int)$a['id'] <=> (int)$b['id'];
+        });
+
+        foreach ($candidates as $cand) {
+            $partners = LeadRouter_Partners::available_in_group(
+                (int)$cand['post_id'],
+                [
+                    'group_meta_key' => '_leadrouter_partner_group',
+                    'statuses'       => ['queued', 'sent', 'accepted'],
+                ]
+            );
+
+            if (empty($partners)) {
+                continue;
+            }
+
+            $from_state = strtoupper(trim((string)($opts['lead_from_state'] ?? '')));
+            $to_state   = strtoupper(trim((string)($opts['lead_to_state'] ?? '')));
+            $excluded   = ['AK', 'HI'];
+            $isExcludedState = in_array($from_state, $excluded, true) || in_array($to_state, $excluded, true);
+
+            $wpdb->insert(
+                $table_logs,
+                [
+                    'lead_id'     => (int)$lead_id,
+                    'partner_id'  => wp_json_encode(array_column($partners, 'post_id')),
+                    'group_id'    => (int)$cand['id'],
+                    'assigned_at' => $assigned_at,
+                    'status'      => $isExcludedState ? 'group_assigned_excluded_state' : 'group_assigned_overflow',
+                ],
+                ['%d','%s','%d','%s','%s']
+            );
+
+            return [
+                'group_id'      => (int)$cand['id'],
+                'group_post_id' => (int)$cand['post_id'],
+                'name'          => (string)$cand['name'],
+                'weight'        => (int)$cand['weight_today'],
+            ];
+        }
+
+        return null;
+    }
+
     // ===== NEW: Reset eff if new day =====
     private static function reset_eff_if_new_day(DateTimeImmutable $now): void
     {
@@ -260,6 +427,13 @@ class LeadRouter_Dispatcher_Eff
             if ($lastDate !== $today) {
                 // Скинути eff у всіх
                 $wpdb->query("UPDATE {$table_groups} SET eff = 0");
+
+                // Межа доби EST — тут же застосовуємо відкладені налаштування
+                // розподілу (mode/N/L) з меты груп. Коефіцієнти синкаються
+                // окремо і негайно при збереженні.
+                if (class_exists('LR_Shared_Sync')) {
+                    LR_Shared_Sync::sync_all_active_groups();
+                }
             }
         }
     }
@@ -282,6 +456,14 @@ class LeadRouter_Dispatcher_Eff
     {
         $key = 'weight_' . $dow;
         return isset($row[$key]) ? max(0, (int)$row[$key]) : 0;
+    }
+
+    /** Коефіцієнт групи з робочої таблиці; порожній/некоректний → 1.0 (нейтрально) */
+    private static function group_coef(array $row): float
+    {
+        $coef = isset($row['coef']) ? (float)$row['coef'] : 1.0;
+
+        return $coef > 0 ? $coef : 1.0;
     }
 
 }

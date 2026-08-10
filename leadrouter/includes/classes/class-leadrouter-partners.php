@@ -12,8 +12,9 @@
  * Ліміти (per-day):
  *   _leadrouter_partner_mon_limit, _leadrouter_partner_tue_limit, ..., _leadrouter_partner_sun_limit
  *
- * Примітка: якщо для дня відсутні start/end — вважаємо «відкрито завжди».
- * Якщо для дня відсутній limit — вважаємо 0 (сьогодні не приймає).
+ * Примітка: якщо для дня відсутній (або не парситься) start чи end — партнер
+ * цього дня ЗАКРИТИЙ і лідів не отримує. Симетрично до лімітів: якщо для дня
+ * відсутній limit — вважаємо 0 (сьогодні не приймає).
  */
 class LeadRouter_Partners
 {
@@ -53,6 +54,10 @@ class LeadRouter_Partners
             return [];
         }
 
+        // manual_bulk / auto_cron_error_lead ігнорують вікна та денні ліміти.
+        // Ключ може бути відсутній у $opts (напр. виклик із Dispatcher_Eff) — тоді звичайний режим.
+        $force_mode = self::is_force_mode($opts);
+
         $lead_from_state = strtoupper(trim((string)($opts['lead_from_state'] ?? '')));
         $lead_to_state   = strtoupper(trim((string)($opts['lead_to_state'] ?? '')));
 
@@ -71,13 +76,13 @@ class LeadRouter_Partners
             }*/
 
             $limit = self::limit_for_day($pid, $dow);
-            if ($limit <= 0 && $opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
+            if ($limit <= 0 && !$force_mode) {
                 continue;
             }
 
 
 
-            if (!self::is_open_now_per_day($pid, $now, $dow) && $opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
+            if (!self::is_open_now_per_day($pid, $now, $dow) && !$force_mode) {
                 continue;
             }
 
@@ -106,7 +111,7 @@ class LeadRouter_Partners
         $used_map = self::fetch_used_today_map(array_keys($partners), $statuses, $day_start, $day_end);
 
 
-        if ($opts['dispatch_method'] != 'manual_bulk' && $opts['dispatch_method'] != 'auto_cron_error_lead') {
+        if (!$force_mode) {
 
             foreach ($partners as $pid => &$row) {
                 $row['used_today'] = (int)($used_map[$pid] ?? 0);
@@ -263,7 +268,53 @@ class LeadRouter_Partners
         return self::available($opts2);
     }
 
+    /**
+     * Попередження для ручної відправки на конкретного партнера. Нічого не
+     * блокує — UI показує їх у confirm. Неактивність тут не перевіряємо:
+     * неактивному відправка неможлива взагалі (Flow поверне помилку).
+     *
+     * @return string[] людиночитні попередження (порожньо — все чисто)
+     */
+    public static function manual_send_warnings(int $partner_id): array
+    {
+        if ($partner_id <= 0) {
+            return [];
+        }
+
+        $now = self::now();
+        $dow = (int)$now->format('N');
+        [$day_start, $day_end] = self::today_window_mysql_est($now);
+
+        $warnings = [];
+
+        $limit = self::limit_for_day($partner_id, $dow);
+        $used  = (int)(self::fetch_used_today_map([$partner_id], ['sent', 'accepted'], $day_start, $day_end)[$partner_id] ?? 0);
+
+        if ($limit <= 0) {
+            $warnings[] = __('на сьогодні ліміт не заданий (0)', 'leadrouter');
+        } elseif ($used >= $limit) {
+            $warnings[] = sprintf(__('денний ліміт вичерпано (%1$d/%2$d)', 'leadrouter'), $used, $limit);
+        }
+
+        if (!self::is_open_now_per_day($partner_id, $now, $dow)) {
+            $warnings[] = __('зараз поза робочими годинами', 'leadrouter');
+        }
+
+        return $warnings;
+    }
+
     /** ===== HELPERS ===== */
+
+    /**
+     * Примусовий режим розсилки: ігнорує робочі вікна та денні ліміти партнера.
+     * Ключ 'dispatch_method' необов'язковий — частина викликів (Dispatcher_Eff)
+     * його не передає, і це нормальний (не примусовий) режим.
+     */
+    private static function is_force_mode(array $opts): bool
+    {
+        $dm = (string)($opts['dispatch_method'] ?? '');
+        return in_array($dm, ['manual_bulk', 'auto_cron_error_lead'], true);
+    }
 
     /** Публікація + _leadrouter_partner_active=1 */
     private static function is_active(int $partner_post_id): bool
@@ -338,7 +389,7 @@ class LeadRouter_Partners
     /**
      * Робочі години per-day: _leadrouter_partner_{slug}_{start|end}
      * - формат HH:MM (запасно підтримується HH:MM:SS), EST
-     * - якщо не задано start або end — вважаємо «завжди відкрито»
+     * - якщо не задано start АБО end — партнер цього дня ЗАКРИТИЙ
      * - підтримує overnight (напр. 22:00–06:00)
      */
     private static function is_open_now_per_day(int $partner_post_id, DateTimeInterface $now, int $dow): bool
@@ -348,25 +399,18 @@ class LeadRouter_Partners
         $to   = get_post_meta($partner_post_id, "_leadrouter_partner_{$slug}_end", true);
 
         if (!$from || !$to) {
-            return true; // немає годин — відкрито завжди
+            return false; // немає початку або кінця — цього дня закрито
         }
 
         $tz = self::tz();
         $today = $now->format('Y-m-d');
 
-        // Спробуємо H:i, якщо ні — H:i:s
-        $from_dt = DateTimeImmutable::createFromFormat('Y-m-d H:i', "{$today} {$from}", $tz);
-        if (!$from_dt) {
-            $from_dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', "{$today} {$from}", $tz);
-        }
-        $to_dt   = DateTimeImmutable::createFromFormat('Y-m-d H:i', "{$today} {$to}", $tz);
-        if (!$to_dt) {
-            $to_dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', "{$today} {$to}", $tz);
-        }
+        $from_dt = self::parse_day_time($today, $from, $tz);
+        $to_dt   = self::parse_day_time($today, $to, $tz);
 
-        // Якщо не вдалося розпарсити (некоректні значення) — відкрито завжди
+        // Якщо не вдалося розпарсити (некоректні значення, напр. «25:99») — закрито
         if (!$from_dt || !$to_dt) {
-            return true;
+            return false;
         }
 
         // overnight 22:00–06:00
@@ -381,6 +425,33 @@ class LeadRouter_Partners
         }
 
         return ($now >= $from_dt && $now < $to_dt);
+    }
+
+    /**
+     * Розібрати значення часу дня (HH:MM або HH:MM:SS) у EST-дату $date.
+     * Повертає null для порожніх і битих значень.
+     *
+     * УВАГА: createFromFormat не повертає false на «25:99» — воно мовчки
+     * «перекочується» на наступну добу (02:39) і лише ставить warning.
+     * Тому битим вважаємо все, де є warning або error.
+     */
+    private static function parse_day_time(string $date, $raw, DateTimeZone $tz): ?DateTimeImmutable
+    {
+        $raw = trim((string)$raw);
+        if ($raw === '') {
+            return null;
+        }
+
+        foreach (['Y-m-d H:i', 'Y-m-d H:i:s'] as $format) {
+            $dt  = DateTimeImmutable::createFromFormat($format, "{$date} {$raw}", $tz);
+            $err = DateTimeImmutable::getLastErrors() ?: ['warning_count' => 0, 'error_count' => 0];
+
+            if ($dt && (int)$err['warning_count'] === 0 && (int)$err['error_count'] === 0) {
+                return $dt;
+            }
+        }
+
+        return null;
     }
 
     /** TZ EST */
@@ -411,13 +482,15 @@ class LeadRouter_Partners
 
         if (!$need_ak && !$need_hi) return true;
 
+        // Carbon Fields зберігає post_meta з префіксом «_», тому ключ саме
+        // _leadrouter_partner_allow_* — як у Flow::filter_partner().
         if ($need_ak) {
-            $allow_ak = get_post_meta($partner_post_id, 'leadrouter_partner_allow_alaska', true);
+            $allow_ak = get_post_meta($partner_post_id, '_leadrouter_partner_allow_alaska', true);
             if ((string)$allow_ak !== '1' && $allow_ak !== 1 && $allow_ak !== true) return false;
         }
 
         if ($need_hi) {
-            $allow_hi = get_post_meta($partner_post_id, 'leadrouter_partner_allow_hawaii', true);
+            $allow_hi = get_post_meta($partner_post_id, '_leadrouter_partner_allow_hawaii', true);
             if ((string)$allow_hi !== '1' && $allow_hi !== 1 && $allow_hi !== true) return false;
         }
 

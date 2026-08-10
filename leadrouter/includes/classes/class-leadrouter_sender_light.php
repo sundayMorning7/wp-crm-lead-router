@@ -502,9 +502,10 @@ if (!class_exists('LeadRouter_Sender_Light')) {
             $reason_code = $result['error_code'] ?? null;
             $retry_after = self::retry_after_seconds($resp_headers);
 
-            $attempted_at = current_time('mysql');
-// TODO Fix
-            //$attempted_at = (new \DateTimeImmutable('now', new \DateTimeZone('America/New_York')))->format('Y-m-d H:i:s');
+            // EST: денна квота групи рахується по цій колонці EST-вікном
+            // (Dispatcher_Eff::assign_group_for_lead), тож час має бути саме EST,
+            // а не залежати від таймзони сайту.
+            $attempted_at = (new \DateTimeImmutable('now', new \DateTimeZone('America/New_York')))->format('Y-m-d H:i:s');
 
             $data = [
                 'lead_id'          => $lead_id,
@@ -931,7 +932,7 @@ if (!class_exists('LeadRouter_Sender_Light')) {
                 'inop_binary_to_bool_reverse',
                 'map_transport_type',
                 'map_transport_type_open_enclosed',
-                'map_transport_type_reverse'
+                'map_transport_type_reverse',
             ];
 
             return in_array($transform, $allowed, true);

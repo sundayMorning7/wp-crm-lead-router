@@ -57,14 +57,22 @@ class LR_Billing
      * Списати з партнера вартість одного ліда.
      * Ідемпотентно: повторний виклик за той самий (partner_id, lead_id) нічого не списує.
      *
+     * @param int $group_post_id Група партнера В МОМЕНТ відправки (для звітів).
+     *                           0 — візьмемо поточну мету партнера як fallback.
      * @return array{status:string, ...} | WP_Error
      */
-    public static function deduct_for_lead(int $partner_id, int $lead_id)
+    public static function deduct_for_lead(int $partner_id, int $lead_id, int $group_post_id = 0)
     {
         global $wpdb;
 
         if ($partner_id <= 0 || $lead_id <= 0) {
             return new WP_Error('billing_bad_args', 'Некоректні partner_id/lead_id');
+        }
+
+        // Виклики без контексту відправки (CLI-тести, ручні поповнення сценаріїв)
+        // отримують поточну групу партнера — не гірше за стару поведінку звіту
+        if ($group_post_id <= 0) {
+            $group_post_id = (int)get_post_meta($partner_id, '_leadrouter_partner_group', true);
         }
 
         $t_billing = self::t_billing();
@@ -108,6 +116,7 @@ class LR_Billing
         $tx_id = self::insert_transaction([
             'partner_id'     => $partner_id,
             'lead_id'        => $lead_id,
+            'group_id'       => $group_post_id > 0 ? $group_post_id : null,
             'type'           => 'spend',
             'amount'         => -$price,
             'balance_before' => $balance_before,
@@ -765,6 +774,7 @@ class LR_Billing
         $row = [
             'partner_id'     => (int)$data['partner_id'],
             'lead_id'        => isset($data['lead_id']) && $data['lead_id'] !== null ? (int)$data['lead_id'] : null,
+            'group_id'       => isset($data['group_id']) && $data['group_id'] !== null ? (int)$data['group_id'] : null,
             'type'           => (string)$data['type'],
             'amount'         => (float)$data['amount'],
             'balance_before' => (float)$data['balance_before'],
@@ -780,7 +790,7 @@ class LR_Billing
         $ok = $wpdb->insert(
             self::t_transactions(),
             $row,
-            ['%d', '%d', '%s', '%f', '%f', '%f', '%s', '%s', '%s', '%s', '%s', '%s']
+            ['%d', '%d', '%d', '%s', '%f', '%f', '%f', '%s', '%s', '%s', '%s', '%s', '%s']
         );
 
         $wpdb->suppress_errors($prev);

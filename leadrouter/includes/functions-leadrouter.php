@@ -43,7 +43,7 @@ function leadrouter_log_assignment( $lead_id, $partner_id, $group_id, $status = 
         'lead_id'     => intval($lead_id),
         'partner_id'  => intval($partner_id),
         'group_id'    => intval($group_id),
-        'assigned_at' => current_time('mysql'),
+        'assigned_at' => leadrouter_now_mysql_est(),
         'status'      => sanitize_text_field($status),
     ], [ '%d','%d','%d','%s','%s' ] );
 }

@@ -31,6 +31,10 @@ if (!class_exists('LR_Partner_Portal')) {
         const NONCE_LOGOUT = 'lr_partner_logout';
         const NONCE_PASS   = 'lr_partner_change_pass';
         const NONCE_FORGOT = 'lr_partner_forgot';
+        const NONCE_LEAD   = 'lr_partner_lead_details';
+
+        /** Стеля рядків у Excel-експорті (запобіжник від OOM на великих історіях) */
+        const EXPORT_MAX_ROWS = 20000;
 
         /** Slug сторінки кабінету */
         const PAGE_SLUG = 'partner';
@@ -66,6 +70,12 @@ if (!class_exists('LR_Partner_Portal')) {
             add_filter('template_include', [__CLASS__, 'cabinet_template']);
             // Пріоритет 100 — після enqueue теми (щоб dequeue спрацював)
             add_action('wp_enqueue_scripts', [__CLASS__, 'enqueue_assets'], 100);
+
+            // Excel-експорт відфільтрованих Leads/Transactions (?lr_export=...)
+            add_action('template_redirect', [__CLASS__, 'maybe_export']);
+
+            // Деталі ліда для модалки (клік по #id у таблиці транзакцій)
+            add_action('wp_ajax_lr_partner_lead_details', [__CLASS__, 'ajax_lead_details']);
         }
 
         /* ============================================================
@@ -114,6 +124,18 @@ if (!class_exists('LR_Partner_Portal')) {
             // Tabler JS (без jQuery, у футері) + лоадери кабінету
             wp_enqueue_script('lr-tabler', $base . 'tabler.min.js', [], '1.4.0', true);
             wp_enqueue_script('lr-cabinet', $base . 'lr-cabinet.js', ['lr-tabler'], $ver, true);
+
+            // Деталі ліда: модалка на вкладці транзакцій (клік по #id)
+            wp_enqueue_script('lr-cabinet-leaddetails', $base . 'lr-cabinet-leaddetails.js', ['lr-tabler'], $ver, true);
+            wp_localize_script('lr-cabinet-leaddetails', 'LRLeadDetails', [
+                'ajaxUrl' => admin_url('admin-ajax.php'),
+                'action'  => 'lr_partner_lead_details',
+                'nonce'   => wp_create_nonce(self::NONCE_LEAD),
+                'i18n'    => [
+                    'loading' => __('Loading…', 'leadrouter'),
+                    'error'   => __('Could not load lead details.', 'leadrouter'),
+                ],
+            ]);
 
             // Скарги на лід: модалка + AJAX-сабміт (nonce). partner_id — лише із сесії на сервері.
             wp_enqueue_script('lr-cabinet-complaints', $base . 'lr-cabinet-complaints.js', ['lr-tabler'], $ver, true);
@@ -588,6 +610,7 @@ if (!class_exists('LR_Partner_Portal')) {
                             </div>
                             <div class="tab-pane<?php echo $active === 'card' ? ' active show' : ''; ?>" id="lr-tab-card" role="tabpanel">
                                 <?php echo self::section_card_html($partner_id); ?>
+                                <div class="mt-3"><?php echo self::section_card_topups_html($partner_id); ?></div>
                             </div>
                         </div>
                     </div>
@@ -664,6 +687,155 @@ if (!class_exists('LR_Partner_Portal')) {
         }
 
         /** Секція «Transactions»: журнал списань/поповнень із пагінацією (ТЗ 7.2) */
+        /**
+         * WHERE + params для ПОПОВНЕНЬ балансу (topup + auto_charge) з фільтром
+         * дат (?cardfrom/?cardto, EST). Використовується секцією і експортом.
+         *
+         * @return array{0:string, 1:array, 2:string, 3:string} [where, params, from, to]
+         */
+        private static function card_topups_query_parts(int $partner_id): array
+        {
+            $from = isset($_GET['cardfrom']) ? sanitize_text_field(wp_unslash($_GET['cardfrom'])) : '';
+            $to   = isset($_GET['cardto'])   ? sanitize_text_field(wp_unslash($_GET['cardto']))   : '';
+
+            $from_dt = self::valid_date($from) ? $from . ' 00:00:00' : '';
+            $to_next = self::valid_date($to)   ? self::date_plus_one($to) . ' 00:00:00' : '';
+
+            $where  = "partner_id = %d AND type IN ('topup', 'auto_charge')";
+            $params = [$partner_id];
+            if ($from_dt !== '') { $where .= ' AND created_at >= %s'; $params[] = $from_dt; }
+            if ($to_next !== '') { $where .= ' AND created_at < %s';  $params[] = $to_next; }
+
+            return [$where, $params, self::valid_date($from) ? $from : '', self::valid_date($to) ? $to : ''];
+        }
+
+        /**
+         * Картка «Top-ups» на вкладці Payment card: усі поповнення внутрішнього
+         * балансу (ручні topup і auto_charge з картки) з фільтром дат і Excel.
+         */
+        private static function section_card_topups_html(int $partner_id): string
+        {
+            global $wpdb;
+            $t_tx = $wpdb->prefix . 'leadrouter_billing_transactions';
+
+            $page   = isset($_GET['cpage']) ? max(1, absint($_GET['cpage'])) : 1;
+            $per    = self::PER_PAGE;
+            $offset = ($page - 1) * $per;
+
+            [$where, $params, $from, $to] = self::card_topups_query_parts($partner_id);
+
+            $total = (int) $wpdb->get_var(
+                $wpdb->prepare("SELECT COUNT(*) FROM {$t_tx} WHERE {$where}", $params)
+            );
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT created_at, type, amount, balance_after, currency, description
+                       FROM {$t_tx} WHERE {$where} ORDER BY id DESC LIMIT %d OFFSET %d",
+                    array_merge($params, [$per, $offset])
+                ),
+                ARRAY_A
+            );
+
+            $extra = [];
+            if ($from !== '') { $extra['cardfrom'] = $from; }
+            if ($to   !== '') { $extra['cardto']   = $to; }
+
+            $cab = LR_Partner_Auth::cabinet_url();
+
+            ob_start();
+            ?>
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><?php echo esc_html__('Top-ups', 'leadrouter'); ?></h3>
+                </div>
+                <div class="card-body border-bottom py-3">
+                    <form method="get" action="<?php echo esc_url($cab); ?>" class="row g-2 align-items-end">
+                        <input type="hidden" name="section" value="card">
+                        <div class="col-12 col-sm-auto">
+                            <label class="form-label" for="lr-cardfrom"><?php echo esc_html__('From (EST)', 'leadrouter'); ?></label>
+                            <input type="date" class="form-control" id="lr-cardfrom" name="cardfrom" value="<?php echo esc_attr($from); ?>">
+                        </div>
+                        <div class="col-12 col-sm-auto">
+                            <label class="form-label" for="lr-cardto"><?php echo esc_html__('To (EST)', 'leadrouter'); ?></label>
+                            <input type="date" class="form-control" id="lr-cardto" name="cardto" value="<?php echo esc_attr($to); ?>">
+                        </div>
+                        <div class="col-12 col-sm-auto">
+                            <button type="submit" class="btn btn-primary w-100"><?php echo esc_html__('Filter', 'leadrouter'); ?></button>
+                        </div>
+                        <div class="col-12 col-sm-auto">
+                            <button type="submit" name="lr_export" value="card_topups" class="btn btn-outline-success w-100">
+                                <i class="ti ti-file-spreadsheet me-1"></i><?php echo esc_html__('Download Excel', 'leadrouter'); ?>
+                            </button>
+                        </div>
+                        <?php if ($from !== '' || $to !== '') : ?>
+                        <div class="col-12 col-sm-auto">
+                            <a class="btn btn-link w-100" href="<?php echo esc_url(add_query_arg('section', 'card', $cab)); ?>">
+                                <?php echo esc_html__('Reset', 'leadrouter'); ?>
+                            </a>
+                        </div>
+                        <?php endif; ?>
+                    </form>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-vcenter card-table">
+                        <thead>
+                            <tr>
+                                <th><?php echo esc_html__('Date (EST)', 'leadrouter'); ?></th>
+                                <th><?php echo esc_html__('Type', 'leadrouter'); ?></th>
+                                <th class="text-end"><?php echo esc_html__('Amount', 'leadrouter'); ?></th>
+                                <th class="text-end"><?php echo esc_html__('Balance after', 'leadrouter'); ?></th>
+                                <th><?php echo esc_html__('Description', 'leadrouter'); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php if (empty($rows)) : ?>
+                            <tr><td colspan="5" class="text-secondary"><?php echo esc_html__('No top-ups yet.', 'leadrouter'); ?></td></tr>
+                        <?php else : foreach ($rows as $r) :
+                            $amount   = (float) ($r['amount'] ?? 0);
+                            $currency = (string) ($r['currency'] ?? 'USD');
+                            $type     = (string) ($r['type'] ?? '');
+                            $amt_str  = ($amount > 0 ? '+' : '') . number_format($amount, 2) . ' ' . $currency;
+                            ?>
+                            <tr>
+                                <td class="text-nowrap"><?php echo esc_html((string) ($r['created_at'] ?? '')); ?></td>
+                                <td><span class="badge <?php echo esc_attr(self::tx_type_badge($type)); ?>"><?php
+                                    echo esc_html($type); ?></span></td>
+                                <td class="text-end text-green"><?php echo esc_html($amt_str); ?></td>
+                                <td class="text-end"><?php echo esc_html(number_format((float) ($r['balance_after'] ?? 0), 2)); ?></td>
+                                <td><?php echo esc_html((string) ($r['description'] ?? '')); ?></td>
+                            </tr>
+                        <?php endforeach; endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php echo self::pagination_html($total, $page, $per, 'card', 'cpage', $extra); ?>
+            </div>
+            <?php
+            return (string) ob_get_clean();
+        }
+
+        /**
+         * WHERE + params для транзакцій партнера з фільтром дат (?txfrom/?txto, EST).
+         * Використовується і в секції, і в Excel-експорті — фільтри збігаються 1:1.
+         *
+         * @return array{0:string, 1:array, 2:string, 3:string} [where, params, from, to]
+         */
+        private static function tx_query_parts(int $partner_id): array
+        {
+            $from = isset($_GET['txfrom']) ? sanitize_text_field(wp_unslash($_GET['txfrom'])) : '';
+            $to   = isset($_GET['txto'])   ? sanitize_text_field(wp_unslash($_GET['txto']))   : '';
+
+            $from_dt = self::valid_date($from) ? $from . ' 00:00:00' : '';
+            $to_next = self::valid_date($to)   ? self::date_plus_one($to) . ' 00:00:00' : '';
+
+            $where  = 'partner_id = %d';
+            $params = [$partner_id];
+            if ($from_dt !== '') { $where .= ' AND created_at >= %s'; $params[] = $from_dt; }
+            if ($to_next !== '') { $where .= ' AND created_at < %s';  $params[] = $to_next; }
+
+            return [$where, $params, self::valid_date($from) ? $from : '', self::valid_date($to) ? $to : ''];
+        }
+
         private static function section_transactions_html(int $partner_id): string
         {
             global $wpdb;
@@ -674,23 +846,60 @@ if (!class_exists('LR_Partner_Portal')) {
             $offset = ($page - 1) * $per;
 
             // partner_id — лише із сесії; усе через prepare
+            [$where, $params, $from, $to] = self::tx_query_parts($partner_id);
+
             $total = (int) $wpdb->get_var(
-                $wpdb->prepare("SELECT COUNT(*) FROM {$t_tx} WHERE partner_id = %d", $partner_id)
+                $wpdb->prepare("SELECT COUNT(*) FROM {$t_tx} WHERE {$where}", $params)
             );
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
                     "SELECT created_at, type, lead_id, amount, balance_after, currency, description
-                       FROM {$t_tx} WHERE partner_id = %d ORDER BY id DESC LIMIT %d OFFSET %d",
-                    $partner_id, $per, $offset
+                       FROM {$t_tx} WHERE {$where} ORDER BY id DESC LIMIT %d OFFSET %d",
+                    array_merge($params, [$per, $offset])
                 ),
                 ARRAY_A
             );
+
+            // Аргументи фільтра для пагінації (лише непорожні)
+            $extra = [];
+            if ($from !== '') { $extra['txfrom'] = $from; }
+            if ($to   !== '') { $extra['txto']   = $to; }
+
+            $cab = LR_Partner_Auth::cabinet_url();
 
             ob_start();
             ?>
             <div class="card">
                 <div class="card-header">
                     <h3 class="card-title"><?php echo esc_html__('Transactions', 'leadrouter'); ?></h3>
+                </div>
+                <div class="card-body border-bottom py-3">
+                    <form method="get" action="<?php echo esc_url($cab); ?>" class="row g-2 align-items-end">
+                        <input type="hidden" name="section" value="overview">
+                        <div class="col-12 col-sm-auto">
+                            <label class="form-label" for="lr-txfrom"><?php echo esc_html__('From (EST)', 'leadrouter'); ?></label>
+                            <input type="date" class="form-control" id="lr-txfrom" name="txfrom" value="<?php echo esc_attr($from); ?>">
+                        </div>
+                        <div class="col-12 col-sm-auto">
+                            <label class="form-label" for="lr-txto"><?php echo esc_html__('To (EST)', 'leadrouter'); ?></label>
+                            <input type="date" class="form-control" id="lr-txto" name="txto" value="<?php echo esc_attr($to); ?>">
+                        </div>
+                        <div class="col-12 col-sm-auto">
+                            <button type="submit" class="btn btn-primary w-100"><?php echo esc_html__('Filter', 'leadrouter'); ?></button>
+                        </div>
+                        <div class="col-12 col-sm-auto">
+                            <button type="submit" name="lr_export" value="transactions" class="btn btn-outline-success w-100">
+                                <i class="ti ti-file-spreadsheet me-1"></i><?php echo esc_html__('Download Excel', 'leadrouter'); ?>
+                            </button>
+                        </div>
+                        <?php if ($from !== '' || $to !== '') : ?>
+                        <div class="col-12 col-sm-auto">
+                            <a class="btn btn-link w-100" href="<?php echo esc_url(add_query_arg('section', 'overview', $cab)); ?>">
+                                <?php echo esc_html__('Reset', 'leadrouter'); ?>
+                            </a>
+                        </div>
+                        <?php endif; ?>
+                    </form>
                 </div>
                 <div class="table-responsive">
                     <table class="table table-vcenter card-table">
@@ -723,7 +932,14 @@ if (!class_exists('LR_Partner_Portal')) {
                                 <td class="text-nowrap"><?php echo esc_html((string) ($r['created_at'] ?? '')); ?></td>
                                 <td><span class="badge <?php echo esc_attr(self::tx_type_badge($type)); ?>"><?php
                                     echo esc_html($type); ?></span></td>
-                                <td><?php echo $lead_id > 0 ? '#' . (int) $lead_id : '<span class="text-secondary">—</span>'; ?></td>
+                                <td>
+                                    <?php if ($lead_id > 0) : ?>
+                                        <a href="#" data-bs-toggle="modal" data-bs-target="#lr-lead-details-modal"
+                                           data-lead-id="<?php echo esc_attr($lead_id); ?>">#<?php echo (int) $lead_id; ?></a>
+                                    <?php else : ?>
+                                        <span class="text-secondary">—</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="text-end <?php echo esc_attr($amt_cls); ?>"><?php echo esc_html($amt_str); ?></td>
                                 <td class="text-end"><?php echo esc_html(number_format((float) ($r['balance_after'] ?? 0), 2)); ?></td>
                                 <td><?php echo esc_html($descr); ?></td>
@@ -732,10 +948,310 @@ if (!class_exists('LR_Partner_Portal')) {
                         </tbody>
                     </table>
                 </div>
-                <?php echo self::pagination_html($total, $page, $per, 'overview', 'txpage'); ?>
+                <?php echo self::pagination_html($total, $page, $per, 'overview', 'txpage', $extra); ?>
+            </div>
+            <?php echo self::lead_details_modal_html(); ?>
+            <?php
+            return (string) ob_get_clean();
+        }
+
+        /** Tabler-модалка деталей ліда (заповнює lr-cabinet-leaddetails.js) */
+        private static function lead_details_modal_html(): string
+        {
+            ob_start();
+            ?>
+            <div class="modal modal-blur fade" id="lr-lead-details-modal" tabindex="-1" role="dialog" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title"><?php echo esc_html__('Lead', 'leadrouter'); ?> <span class="lr-ld-title"></span></h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?php echo esc_attr__('Close', 'leadrouter'); ?>"></button>
+                        </div>
+                        <div class="modal-body lr-ld-body"></div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-link link-secondary" data-bs-dismiss="modal"><?php echo esc_html__('Close', 'leadrouter'); ?></button>
+                        </div>
+                    </div>
+                </div>
             </div>
             <?php
             return (string) ob_get_clean();
+        }
+
+        /* ============================================================
+         * Excel-експорт відфільтрованих даних (?lr_export=leads|transactions)
+         * ============================================================ */
+
+        /**
+         * Перехоплення GET-запиту експорту на сторінці кабінету. Фільтри —
+         * ті самі GET-параметри, що й у формах секцій, тож «що бачиш у
+         * таблиці — те і в файлі» (тільки без пагінації).
+         */
+        public static function maybe_export(): void
+        {
+            if (!self::is_cabinet_page()) {
+                return;
+            }
+            $what = isset($_GET['lr_export']) ? sanitize_key(wp_unslash($_GET['lr_export'])) : '';
+            if (!in_array($what, ['leads', 'transactions', 'card_topups'], true)) {
+                return;
+            }
+
+            $partner_id = class_exists('LR_Partner_Auth') ? LR_Partner_Auth::current_partner_id() : 0;
+            if ($partner_id <= 0 || !class_exists('LR_Xlsx')) {
+                return; // незалогінений побачить звичайну сторінку з формою входу
+            }
+
+            if ($what === 'transactions') {
+                self::export_transactions($partner_id);
+            } elseif ($what === 'card_topups') {
+                self::export_card_topups($partner_id);
+            } else {
+                self::export_leads($partner_id);
+            }
+        }
+
+        /** Поповнення балансу (topup + auto_charge) за фільтром дат → Excel */
+        private static function export_card_topups(int $partner_id): void
+        {
+            global $wpdb;
+            $t_tx = $wpdb->prefix . 'leadrouter_billing_transactions';
+
+            [$where, $params, $from, $to] = self::card_topups_query_parts($partner_id);
+
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT created_at, type, amount, currency, balance_after, description
+                   FROM {$t_tx} WHERE {$where} ORDER BY id DESC LIMIT %d",
+                array_merge($params, [self::EXPORT_MAX_ROWS])
+            ), ARRAY_A);
+
+            $out = [];
+            foreach ((array) $rows as $r) {
+                $out[] = [
+                    (string) ($r['created_at'] ?? ''),
+                    (string) ($r['type'] ?? ''),
+                    (float) ($r['amount'] ?? 0),
+                    (string) ($r['currency'] ?? 'USD'),
+                    (float) ($r['balance_after'] ?? 0),
+                    (string) ($r['description'] ?? ''),
+                ];
+            }
+
+            LR_Xlsx::stream(
+                'top-ups-' . ($from !== '' ? $from : 'all') . '_' . ($to !== '' ? $to : 'all'),
+                [
+                    __('Date (EST)', 'leadrouter'),
+                    __('Type', 'leadrouter'),
+                    __('Amount', 'leadrouter'),
+                    __('Currency', 'leadrouter'),
+                    __('Balance after', 'leadrouter'),
+                    __('Description', 'leadrouter'),
+                ],
+                $out
+            );
+        }
+
+        /** Транзакції партнера за фільтром дат → Excel */
+        private static function export_transactions(int $partner_id): void
+        {
+            global $wpdb;
+            $t_tx = $wpdb->prefix . 'leadrouter_billing_transactions';
+
+            [$where, $params, $from, $to] = self::tx_query_parts($partner_id);
+
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT created_at, type, lead_id, amount, currency, balance_after, description
+                   FROM {$t_tx} WHERE {$where} ORDER BY id DESC LIMIT %d",
+                array_merge($params, [self::EXPORT_MAX_ROWS])
+            ), ARRAY_A);
+
+            $out = [];
+            foreach ((array) $rows as $r) {
+                $lead_id = (int) ($r['lead_id'] ?? 0);
+                $type    = (string) ($r['type'] ?? '');
+                $descr   = ($type === 'spend' && $lead_id > 0)
+                    ? sprintf(__('Lead charge #%d', 'leadrouter'), $lead_id)
+                    : (string) ($r['description'] ?? '');
+                $out[] = [
+                    (string) ($r['created_at'] ?? ''),
+                    $type,
+                    $lead_id > 0 ? $lead_id : '',
+                    (float) ($r['amount'] ?? 0),
+                    (string) ($r['currency'] ?? 'USD'),
+                    (float) ($r['balance_after'] ?? 0),
+                    $descr,
+                ];
+            }
+
+            LR_Xlsx::stream(
+                'transactions-' . ($from !== '' ? $from : 'all') . '_' . ($to !== '' ? $to : 'all'),
+                [
+                    __('Date (EST)', 'leadrouter'),
+                    __('Type', 'leadrouter'),
+                    __('Lead ID', 'leadrouter'),
+                    __('Amount', 'leadrouter'),
+                    __('Currency', 'leadrouter'),
+                    __('Balance after', 'leadrouter'),
+                    __('Description', 'leadrouter'),
+                ],
+                $out
+            );
+        }
+
+        /** Ліди партнера (spend ⋈ leads) за фільтром дат/пошуку → Excel */
+        private static function export_leads(int $partner_id): void
+        {
+            global $wpdb;
+            $t_tx = $wpdb->prefix . 'leadrouter_billing_transactions';
+            $t_l  = $wpdb->prefix . 'leadrouter_leads';
+
+            // Той самий фільтр, що в section_leads_html (from/to/q)
+            $from = isset($_GET['from']) ? sanitize_text_field(wp_unslash($_GET['from'])) : '';
+            $to   = isset($_GET['to'])   ? sanitize_text_field(wp_unslash($_GET['to']))   : '';
+            $q    = isset($_GET['q'])    ? sanitize_text_field(wp_unslash($_GET['q']))    : '';
+
+            $from_dt = self::valid_date($from) ? $from . ' 00:00:00' : '';
+            $to_next = self::valid_date($to)   ? self::date_plus_one($to) . ' 00:00:00' : '';
+
+            $where  = "t.partner_id = %d AND t.type = 'spend'";
+            $params = [$partner_id];
+            if ($from_dt !== '') { $where .= ' AND t.created_at >= %s'; $params[] = $from_dt; }
+            if ($to_next !== '') { $where .= ' AND t.created_at < %s';  $params[] = $to_next; }
+            if ($q !== '') {
+                $like = '%' . $wpdb->esc_like($q) . '%';
+                $where .= ' AND (l.name LIKE %s OR l.phone LIKE %s OR l.email LIKE %s)';
+                $params[] = $like; $params[] = $like; $params[] = $like;
+            }
+
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT t.lead_id, t.created_at AS charged_at, t.amount,
+                        l.name, l.email, l.phone,
+                        l.vehicle_year, l.vehicle_brand, l.vehicle_model
+                   FROM {$t_tx} t JOIN {$t_l} l ON l.id = t.lead_id
+                  WHERE {$where}
+                  ORDER BY t.created_at DESC
+                  LIMIT %d",
+                array_merge($params, [self::EXPORT_MAX_ROWS])
+            ), ARRAY_A);
+
+            $out = [];
+            foreach ((array) $rows as $r) {
+                $vehicle = trim(sprintf(
+                    '%s %s %s',
+                    (string) ($r['vehicle_year'] ?? ''),
+                    (string) ($r['vehicle_brand'] ?? ''),
+                    (string) ($r['vehicle_model'] ?? '')
+                ));
+                $out[] = [
+                    (int) ($r['lead_id'] ?? 0),
+                    (string) ($r['name'] ?? ''),
+                    (string) ($r['email'] ?? ''),
+                    (string) ($r['phone'] ?? ''),
+                    $vehicle,
+                    (string) ($r['charged_at'] ?? ''),
+                    (float) ($r['amount'] ?? 0),
+                ];
+            }
+
+            LR_Xlsx::stream(
+                'leads-' . ($from !== '' ? $from : 'all') . '_' . ($to !== '' ? $to : 'all'),
+                [
+                    __('Lead ID', 'leadrouter'),
+                    __('Customer', 'leadrouter'),
+                    __('Email', 'leadrouter'),
+                    __('Phone', 'leadrouter'),
+                    __('Vehicle', 'leadrouter'),
+                    __('Charged at (EST)', 'leadrouter'),
+                    __('Amount', 'leadrouter'),
+                ],
+                $out
+            );
+        }
+
+        /* ============================================================
+         * Деталі ліда для модалки (транзакції): AJAX
+         * ============================================================ */
+
+        /**
+         * Партнер бачить деталі ЛИШЕ ліда, за який із нього списано кошти
+         * (spend-транзакція) — це і перевірка доступу, і джерело суми.
+         */
+        public static function ajax_lead_details(): void
+        {
+            check_ajax_referer(self::NONCE_LEAD, 'nonce');
+
+            $partner_id = class_exists('LR_Partner_Auth') ? LR_Partner_Auth::current_partner_id() : 0;
+            if ($partner_id <= 0) {
+                wp_send_json_error(['message' => __('Not authorized.', 'leadrouter')], 403);
+            }
+
+            $lead_id = isset($_POST['lead_id']) ? absint($_POST['lead_id']) : 0;
+            if ($lead_id <= 0) {
+                wp_send_json_error(['message' => __('Bad lead id.', 'leadrouter')], 400);
+            }
+
+            global $wpdb;
+            $t_tx = $wpdb->prefix . 'leadrouter_billing_transactions';
+            $t_l  = $wpdb->prefix . 'leadrouter_leads';
+
+            $tx = $wpdb->get_row($wpdb->prepare(
+                "SELECT created_at, amount, currency FROM {$t_tx}
+                  WHERE partner_id = %d AND lead_id = %d AND type = 'spend'
+                  ORDER BY id DESC LIMIT 1",
+                $partner_id, $lead_id
+            ), ARRAY_A);
+            if (!$tx) {
+                wp_send_json_error(['message' => __('Lead not found.', 'leadrouter')], 404);
+            }
+
+            $l = $wpdb->get_row($wpdb->prepare(
+                "SELECT name, email, phone, est_ship_date,
+                        vehicle_year, vehicle_brand, vehicle_model, vehicle_condition,
+                        from_city, from_state, from_zip, to_city, to_state, to_zip
+                   FROM {$t_l} WHERE id = %d",
+                $lead_id
+            ), ARRAY_A);
+            if (!$l) {
+                wp_send_json_error(['message' => __('Lead not found.', 'leadrouter')], 404);
+            }
+
+            $place = static function ($city, $state, $zip): string {
+                $parts = array_filter([trim((string) $city), trim((string) $state), trim((string) $zip)]);
+                return $parts ? implode(', ', $parts) : '';
+            };
+            $vehicle = trim(sprintf(
+                '%s %s %s',
+                (string) ($l['vehicle_year'] ?? ''),
+                (string) ($l['vehicle_brand'] ?? ''),
+                (string) ($l['vehicle_model'] ?? '')
+            ));
+            $cond = trim((string) ($l['vehicle_condition'] ?? ''));
+            if ($cond !== '') {
+                $cond = (strcasecmp($cond, 'Running') === 0)
+                    ? __('Operable', 'leadrouter')
+                    : __('Inoperable', 'leadrouter');
+            }
+            $amount = (float) ($tx['amount'] ?? 0);
+
+            $fields = [
+                ['label' => __('Customer', 'leadrouter'),         'value' => (string) ($l['name'] ?? '')],
+                ['label' => __('Email', 'leadrouter'),            'value' => (string) ($l['email'] ?? '')],
+                ['label' => __('Phone', 'leadrouter'),            'value' => (string) ($l['phone'] ?? '')],
+                ['label' => __('From', 'leadrouter'),             'value' => $place($l['from_city'] ?? '', $l['from_state'] ?? '', $l['from_zip'] ?? '')],
+                ['label' => __('To', 'leadrouter'),               'value' => $place($l['to_city'] ?? '', $l['to_state'] ?? '', $l['to_zip'] ?? '')],
+                ['label' => __('Vehicle', 'leadrouter'),          'value' => $vehicle],
+                ['label' => __('Condition', 'leadrouter'),        'value' => $cond],
+                ['label' => __('Est. ship date', 'leadrouter'),   'value' => (string) ($l['est_ship_date'] ?? '')],
+                ['label' => __('Charged at (EST)', 'leadrouter'), 'value' => (string) ($tx['created_at'] ?? '')],
+                ['label' => __('Charged amount', 'leadrouter'),   'value' => number_format(abs($amount), 2) . ' ' . (string) ($tx['currency'] ?? 'USD')],
+            ];
+
+            $title = '#' . $lead_id;
+            if (trim((string) ($l['name'] ?? '')) !== '') {
+                $title .= ' — ' . (string) $l['name'];
+            }
+
+            wp_send_json_success(['title' => $title, 'fields' => $fields]);
         }
 
         /**
@@ -825,6 +1341,11 @@ if (!class_exists('LR_Partner_Portal')) {
                         </div>
                         <div class="col-12 col-sm-auto">
                             <button type="submit" class="btn btn-primary w-100"><?php echo esc_html__('Filter', 'leadrouter'); ?></button>
+                        </div>
+                        <div class="col-12 col-sm-auto">
+                            <button type="submit" name="lr_export" value="leads" class="btn btn-outline-success w-100">
+                                <i class="ti ti-file-spreadsheet me-1"></i><?php echo esc_html__('Download Excel', 'leadrouter'); ?>
+                            </button>
                         </div>
                         <?php if ($from !== '' || $to !== '' || $q !== '') : ?>
                         <div class="col-12 col-sm-auto">

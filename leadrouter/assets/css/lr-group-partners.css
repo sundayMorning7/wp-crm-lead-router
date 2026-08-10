@@ -1,0 +1,10 @@
+/* Склад групи на сторінці leadrouter_group (LR_Group_Partners) */
+
+.lr-gp .lr-gp-table { max-width: 900px; }
+.lr-gp .lr-gp-add { margin: 10px 0 0; }
+.lr-gp .lr-gp-select { max-width: 420px; }
+.lr-gp .lr-gp-msg { margin-left: 8px; font-size: 12px; }
+.lr-gp .lr-gp-msg.is-ok { color: #00a32a; }
+.lr-gp .lr-gp-msg.is-err { color: #d63638; }
+.lr-gp .lr-gp-note { margin: 8px 0 0; color: #646970; font-size: 12px; max-width: 900px; }
+.lr-gp.is-busy { opacity: .6; pointer-events: none; }

@@ -28,8 +28,198 @@ class LeadRouter_Leads_Table extends WP_List_Table
     /**
      * -------- Columns (Stage 1 minimal table) --------
      */
+    /* ============================================================
+     * Режим відображення: classic | compact
+     *
+     * Компактний — це ЛИШЕ подання: ті самі дані, ті самі запити, ті самі
+     * гачки для JS (.lr-lead-cb, .lr-broadcast-inline, .lr-view-logs …).
+     * Відрізняються набір колонок і рендерери комірок.
+     *
+     * Вибір зберігається на КОРИСТУВАЧА: один менеджер може сидіти в новому
+     * вигляді, інший — у старому. Параметр ?lr_view=… дає разовий перегляд
+     * без збереження, щоб можна було порівняти два вигляди в сусідніх вкладках.
+     * ============================================================ */
+
+    const VIEW_META    = 'lr_leads_view';
+    const VIEW_NONCE   = 'lr_leads_view_switch';
+    const VIEW_DEFAULT = 'classic';
+
+    /** Поточний режим */
+    public static function view_mode(): string
+    {
+        static $mode = null;
+        if ($mode !== null) {
+            return $mode;
+        }
+
+        // разовий перегляд із URL — має пріоритет над збереженим
+        if (isset($_GET['lr_view'])) {
+            $v = sanitize_key((string)$_GET['lr_view']);
+            if (in_array($v, ['classic', 'compact'], true)) {
+                return $mode = $v;
+            }
+        }
+
+        $saved = get_user_meta(get_current_user_id(), self::VIEW_META, true);
+
+        return $mode = ($saved === 'compact' ? 'compact' : self::VIEW_DEFAULT);
+    }
+
+    public static function is_compact(): bool
+    {
+        return self::view_mode() === 'compact';
+    }
+
+    /** Запам'ятати вибір користувача (клік по кнопці в шапці, з nonce) */
+    public static function maybe_save_view_mode(): void
+    {
+        if (!isset($_GET['lr_view'], $_GET['_lrview']) || !current_user_can('manage_options')) {
+            return;
+        }
+
+        if (!wp_verify_nonce(sanitize_text_field((string)$_GET['_lrview']), self::VIEW_NONCE)) {
+            return;
+        }
+
+        $v = sanitize_key((string)$_GET['lr_view']);
+        if (in_array($v, ['classic', 'compact'], true)) {
+            update_user_meta(get_current_user_id(), self::VIEW_META, $v);
+        }
+    }
+
+    /** Кнопки-таби для шапки сторінки */
+    public static function view_switch_html(): string
+    {
+        $current = self::view_mode();
+        $nonce   = wp_create_nonce(self::VIEW_NONCE);
+
+        $tabs = [
+            'classic' => __('Класичний', 'leadrouter'),
+            'compact' => __('Компактний', 'leadrouter'),
+        ];
+
+        $html = '<span class="lr-view-switch">';
+        foreach ($tabs as $key => $label) {
+            $url = add_query_arg(
+                ['page' => 'leadrouter-leads', 'lr_view' => $key, '_lrview' => $nonce],
+                admin_url('admin.php')
+            );
+
+            $html .= sprintf(
+                '<a class="lr-view-tab%s" href="%s">%s</a>',
+                $key === $current ? ' is-active' : '',
+                esc_url($url),
+                esc_html($label)
+            );
+        }
+        $html .= '</span>';
+
+        return $html;
+    }
+
+    /* ============================================================
+     * Кількість лідів на сторінку
+     *
+     * Ключ той самий, що читає get_items_per_page() і стандартні
+     * «Налаштування екрана» — щоб два механізми не сперечались.
+     * Поки користувач нічого не обрав, діє дефолт режиму: 20 у класичному,
+     * 60 у компактному (рядок там утричі нижчий).
+     * ============================================================ */
+
+    const PER_PAGE_OPTION  = 'leadrouter_leads_per_page';
+    const PER_PAGE_NONCE   = 'lr_leads_per_page';
+    const PER_PAGE_CHOICES = [20, 40, 60, 100, 200];
+
+    /** Чинна кількість на сторінку */
+    public static function per_page(): int
+    {
+        $user = (int)get_user_option(self::PER_PAGE_OPTION);
+        if ($user > 0) {
+            return max(5, min(500, $user));
+        }
+
+        return self::is_compact() ? 60 : 20;
+    }
+
+    /** Зберегти вибір користувача (селект у шапці панелі) */
+    public static function maybe_save_per_page(): void
+    {
+        if (!isset($_GET['lr_per_page'], $_GET['_lrpp']) || !current_user_can('manage_options')) {
+            return;
+        }
+
+        if (!wp_verify_nonce(sanitize_text_field((string)$_GET['_lrpp']), self::PER_PAGE_NONCE)) {
+            return;
+        }
+
+        $n = (int)$_GET['lr_per_page'];
+        if ($n >= 5 && $n <= 500) {
+            update_user_option(get_current_user_id(), self::PER_PAGE_OPTION, $n);
+        }
+    }
+
+    /** Селект «К-ть» для шапки панелі: значення опцій — готові URL */
+    public static function per_page_select_html(): string
+    {
+        $current = self::per_page();
+        $nonce   = wp_create_nonce(self::PER_PAGE_NONCE);
+
+        $choices = self::PER_PAGE_CHOICES;
+        if (!in_array($current, $choices, true)) {
+            $choices[] = $current; // значення з «Налаштувань екрана»
+            sort($choices);
+        }
+
+        $html = '<select class="lr-bp-perpage" aria-label="' . esc_attr__('Лідів на сторінці', 'leadrouter') . '">';
+        foreach ($choices as $n) {
+            $url = add_query_arg(
+                [
+                    'page'        => 'leadrouter-leads',
+                    'lr_per_page' => $n,
+                    '_lrpp'       => $nonce,
+                ],
+                admin_url('admin.php')
+            );
+
+            $html .= sprintf(
+                '<option value="%s"%s>%d</option>',
+                esc_url($url),
+                $n === $current ? ' selected' : '',
+                $n
+            );
+        }
+
+        return $html . '</select>';
+    }
+
+    /** Клас на <table>, щоб компактний CSS не протікав у класичний вигляд */
+    protected function get_table_classes()
+    {
+        $classes = parent::get_table_classes();
+
+        if (self::is_compact()) {
+            $classes[] = 'lr-leads-compact';
+        }
+
+        return $classes;
+    }
+
     public function get_columns()
     {
+        if (self::is_compact()) {
+            // utm → всередину «Контакту», sent → у «Створено», копії → у
+            // «Статус», «Send to» → іконкою в «Дії»
+            return [
+                'id'                 => __('ID', 'leadrouter'),
+                'contact'            => __('Contact', 'leadrouter'),
+                'route'              => __('Route + Vehicle', 'leadrouter'),
+                'created_at'         => __('Created', 'leadrouter'),
+                'group_with_partner' => __('Group with Partner', 'leadrouter'),
+                'status'             => __('Status', 'leadrouter'),
+                'actions'            => __('Actions', 'leadrouter'),
+            ];
+        }
+
         return [
             'id' => __('ID', 'leadrouter'),
             'contact' => __('Contact', 'leadrouter'),
@@ -39,6 +229,7 @@ class LeadRouter_Leads_Table extends WP_List_Table
             'created_at' => __('Created', 'leadrouter'),
             'sent_at' => __('Sent', 'leadrouter'),
             'group_with_partner' => __('Group with Partner', 'leadrouter'),
+            'copies' => __('Копії', 'leadrouter'),
             'status' => __('Status', 'leadrouter'),
             'send' => __('Send to', 'leadrouter'),
             'actions' => __('Actions', 'leadrouter'),
@@ -47,6 +238,14 @@ class LeadRouter_Leads_Table extends WP_List_Table
 
     protected function get_sortable_columns()
     {
+        // у компактному немає окремої колонки «Sent» — сортування по ній теж
+        if (self::is_compact()) {
+            return [
+                'created_at' => ['created_at', true],
+                'status'     => ['status', false],
+            ];
+        }
+
         return [
             'created_at' => ['created_at', true],  // default DESC
             'sent_at' => ['sent_at', false],
@@ -63,25 +262,20 @@ class LeadRouter_Leads_Table extends WP_List_Table
     public function extra_tablenav($which)
     {
 
+        // UTM-статистика — внизу, під таблицею
+        if ($which === 'bottom') {
+            $this->render_utm_stats_panel();
+            return;
+        }
+
         if ($which === 'top') {
 
-            // UTM Stats Panel
-            $this->render_utm_stats_panel();
-
             // ... твої існуючі фільтри
-
-            $groups = $this->get_groups_for_select();
 
             echo '<div class="alignleft actions lr-bulk-send">';
 
             echo '<select class="lr-bulk-group-select" style="max-width:220px;">';
-            echo '<option value="0">' . esc_html__('In flow', 'leadrouter') . '</option>';
-            foreach ($groups as $g) {
-                $gid = (int)($g->ID ?? 0);
-                if ($gid <= 0) continue;
-                $title = !empty($g->post_title) ? (string)$g->post_title : ('Group #' . $gid);
-                echo '<option value="' . esc_attr($gid) . '">' . esc_html($title) . '</option>';
-            }
+            echo $this->render_send_select_options();
             echo '</select>';
 
             echo ' <button type="button" class="button lr-bulk-send-btn">📣 ' . esc_html__('Send selected', 'leadrouter') . '</button>';
@@ -289,37 +483,56 @@ class LeadRouter_Leads_Table extends WP_List_Table
     public function column_default($item, $column_name)
     {
 
+        $compact = self::is_compact();
+
         switch ($column_name) {
             case 'id':
                 return $this->render_id($item);
             case 'contact':
-                return wp_kses_post($this->render_contact($item));
+                return $compact
+                    ? wp_kses_post($this->render_contact_stacked($item))
+                    : wp_kses_post($this->render_contact($item));
 
             case 'route':
-                return wp_kses_post($this->render_route_full($item)) . '<strong>VEHICLE:</strong><br/>' . wp_kses_post($this->render_vehicle_ship($item));
+                return $compact
+                    ? wp_kses_post($this->render_route_compact($item))
+                    : wp_kses_post($this->render_route_full($item)) . '<strong>VEHICLE:</strong><br/>' . wp_kses_post($this->render_vehicle_ship($item));
 
            /* case 'vehicle_ship':
                 return wp_kses_post($this->render_vehicle_ship($item));*/
             case 'utm':
                 return $this->render_utm($item);
             case 'created_at':
-                return esc_html($this->fmt_dt($item['created_at'] ?? ''));
+                return $compact
+                    ? wp_kses_post($this->render_when_compact($item))
+                    : esc_html($this->fmt_dt($item['created_at'] ?? ''));
 
             case 'sent_at':
                 $val = $item['sent_at'] ?? '';
                 return $val ? esc_html($this->fmt_dt($val)) : '—';
 
             case 'group_with_partner':
-                return wp_kses_post($this->render_group_with_partner($item));
+                return $compact
+                    ? wp_kses_post($this->render_partners_chips($item))
+                    : wp_kses_post($this->render_group_with_partner($item));
+
+            case 'copies':
+                return wp_kses_post($this->render_copies($item));
 
             case 'status':
-                return wp_kses_post($this->render_status($item));
+                return $compact
+                    ? wp_kses_post($this->render_status_copies($item))
+                    : wp_kses_post($this->render_status($item));
 
             case 'send':
                 return $this->render_send_control($item);
 
             case 'actions':
-                return wp_kses_post($this->render_actions($item));
+                // без wp_kses_post: у компактному режимі в комірці лежить
+                // контрол відправки, а <select>/<option> фільтр вирізає
+                return $compact
+                    ? $this->render_actions_compact($item)
+                    : wp_kses_post($this->render_actions($item));
 
             default:
                 return '';
@@ -382,6 +595,91 @@ class LeadRouter_Leads_Table extends WP_List_Table
         return $html ? $html : '—';
     }
 
+    /**
+     * Копії shared-ліда: продано/ціль + партнери зі sent_summary_json.
+     * Для класичних лідів (ціль = 1) не муляємо око — «—».
+     */
+    protected function render_copies($r)
+    {
+        $target = (int)($r['copies_target'] ?? 1);
+        $sold   = (int)($r['copies_sold'] ?? 0);
+
+        if ($target <= 1) {
+            return '<span style="color:#a7aaad">—</span>';
+        }
+
+        $names = [];
+        $summary = $r['sent_summary_json'] ?? '';
+        if (is_string($summary) && $summary !== '') {
+            $decoded = json_decode($summary, true);
+            if (is_array($decoded)) {
+                $rows = isset($decoded['partners']) && is_array($decoded['partners']) ? $decoded['partners'] : $decoded;
+                foreach ($rows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+                    $pid = (int)($row['partner_id'] ?? 0);
+                    if ($pid > 0) {
+                        $names[$pid] = get_the_title($pid) ?: ('#' . $pid);
+                    }
+                }
+            }
+        }
+
+        $color = $sold >= $target ? '#00a32a' : ($sold > 0 ? '#dba617' : '#d63638');
+
+        $html = sprintf(
+            '<strong style="color:%s">%d/%d</strong>',
+            esc_attr($color),
+            $sold,
+            $target
+        );
+
+        if (!empty($names)) {
+            $html .= '<br><span style="font-size:11px;color:#646970">' . esc_html(implode(', ', $names)) . '</span>';
+        }
+
+        return $html;
+    }
+
+    /**
+     * Оригінал дубля з журналу (подія duplicate_detected):
+     * ['lead_id' => int, 'matched_by' => 'phone'|'email'] або null.
+     * Дублів на сторінці одиниці, тож точковий запит із кешем на запит.
+     */
+    protected function duplicate_origin(int $lead_id): ?array
+    {
+        static $cache = [];
+
+        if ($lead_id <= 0) {
+            return null;
+        }
+        if (array_key_exists($lead_id, $cache)) {
+            return $cache[$lead_id];
+        }
+
+        global $wpdb;
+        $payload = $wpdb->get_var($wpdb->prepare(
+            "SELECT payload FROM {$wpdb->prefix}leadrouter_logs
+              WHERE lead_id = %d AND status = 'duplicate_detected'
+              ORDER BY id DESC LIMIT 1",
+            $lead_id
+        ));
+
+        $origin = null;
+        if ($payload) {
+            $data = json_decode((string)$payload, true);
+            if (is_array($data) && (int)($data['duplicate_of_lead_id'] ?? 0) > 0) {
+                $origin = [
+                    'lead_id'    => (int)$data['duplicate_of_lead_id'],
+                    'matched_by' => (string)($data['matched_by'] ?? ''),
+                ];
+            }
+        }
+
+        return $cache[$lead_id] = $origin;
+    }
+
     protected function render_status($r)
     {
         $id = $r['id'] ?? '';
@@ -402,10 +700,37 @@ class LeadRouter_Leads_Table extends WP_List_Table
                 $html .= '<i class="md_check_await"><span>Await</span></i>';
                 break;
             case 'error':
+                // дубль лишається зі статусом error — відрізняється лише бейджем
+                if (($r['last_error_code'] ?? '') === 'duplicate_lead') {
+                    $html .= '<i class="md_check_overlimit"><span>Duplicate</span></i>';
+                    $origin = $this->duplicate_origin((int)$id);
+                    if ($origin !== null) {
+                        $origin_url = add_query_arg(
+                            ['page' => 'leadrouter-leads', 's' => (int)$origin['lead_id']],
+                            admin_url('admin.php')
+                        );
+                        $html .= '<br><span style="font-size:11px;color:#646970">'
+                            . esc_html__('дубль', 'leadrouter') . ' '
+                            . '<a href="' . esc_url($origin_url) . '">#' . (int)$origin['lead_id'] . '</a>'
+                            . ' · ' . esc_html($origin['matched_by'])
+                            . '</span>';
+                    }
+                    break;
+                }
                 $html .= '<i class="md_check_error"><span>Error</span></i>';
                 break;
             case 'state_error':
                 $html .= '<i class="md_check_overlimit"><span>State Error (AK.HI)</span></i>';
+                break;
+            case 'sent_partial':
+                // shared-лід проданий менше ніж N разів — досилку робить await-крон
+                $html .= '<i class="md_check_await"><span>Partial ' . (int)($r['copies_sold'] ?? 0) . '/' . (int)($r['copies_target'] ?? 0) . '</span></i>';
+                break;
+            case 'expired':
+                // досилка прострочена (термін давності в налаштуваннях Dispatch)
+                $html .= '<i class="md_check_error"><span>Expired'
+                    . ((int)($r['copies_target'] ?? 0) > 1 ? ' ' . (int)($r['copies_sold'] ?? 0) . '/' . (int)($r['copies_target'] ?? 0) : '')
+                    . '</span></i>';
                 break;
         }
         $html .= '</div>';
@@ -492,7 +817,17 @@ class LeadRouter_Leads_Table extends WP_List_Table
 
         $line2 = $ship ? esc_html__('Ship:', 'leadrouter') . ' ' . esc_html($ship) : esc_html__('Ship:', 'leadrouter') . ' —';
 
-        return $line1 . '<br>' . $line2;
+        // operable/inop: та сама логіка, що й у vehicle_inop при відправці (Running → operable)
+        $cond = trim((string)($r['vehicle_condition'] ?? ''));
+        if ($cond === '') {
+            $line3 = esc_html__('Condition:', 'leadrouter') . ' —';
+        } elseif (strcasecmp($cond, 'Running') === 0) {
+            $line3 = esc_html__('Condition:', 'leadrouter') . ' <span style="color:#00a32a;">operable</span>';
+        } else {
+            $line3 = esc_html__('Condition:', 'leadrouter') . ' <span style="color:#d63638;font-weight:600;">inop</span>';
+        }
+
+        return $line1 . '<br>' . $line2 . '<br>' . $line3;
     }
 
     /**
@@ -539,6 +874,239 @@ class LeadRouter_Leads_Table extends WP_List_Table
 
         $out .= '</div>';
         return $out;
+    }
+
+    /* ============================================================
+     * КОМПАКТНИЙ РЕЖИМ — рендерери комірок
+     *
+     * Дані ті самі, що в класичному; відрізняється лише подання. Колонки
+     * «Send to» і «Actions» навмисно спільні для обох режимів, щоб не
+     * дублювати гачки для JS (.lr-broadcast-inline, .lr-view-logs …).
+     * ============================================================ */
+
+    /** Контакт у стовпчик: ім'я / телефон / email / UTM-мітка */
+    protected function render_contact_stacked($r)
+    {
+        $name  = trim((string)($r['name'] ?? ''));
+        $phone = trim((string)($r['phone'] ?? ''));
+        $email = trim((string)($r['email'] ?? ''));
+        $utm   = trim((string)($r['utm_source'] ?? ''));
+
+        if ($name === '' && $phone === '' && $email === '') {
+            return '<span class="lr-dim">—</span>';
+        }
+
+        $out = '<div class="lr-c-contact">';
+
+        if ($name !== '') {
+            $out .= '<span class="lr-c-name" title="' . esc_attr($name) . '">' . esc_html($name) . '</span>';
+        }
+        if ($phone !== '') {
+            $out .= '<a class="lr-c-tel" href="tel:' . esc_attr($phone) . '">' . esc_html($phone) . '</a>';
+        }
+        if ($email !== '') {
+            $out .= '<a class="lr-c-mail" href="mailto:' . esc_attr($email) . '" title="' . esc_attr($email) . '">'
+                . esc_html($email) . '</a>';
+        }
+        if ($utm !== '') {
+            $out .= '<span class="lr-c-utm">' . esc_html($utm) . '</span>';
+        }
+
+        return $out . '</div>';
+    }
+
+    /** Маршрут і авто рівно у дві лінійки */
+    protected function render_route_compact($r)
+    {
+        $from = $this->fmt_place($r['from_city'] ?? '', $r['from_state'] ?? '', $r['from_zip'] ?? '');
+        $to   = $this->fmt_place($r['to_city'] ?? '', $r['to_state'] ?? '', $r['to_zip'] ?? '');
+
+        $brand = trim((string)($r['vehicle_brand'] ?? ''));
+        $model = trim((string)($r['vehicle_model'] ?? ''));
+        $year  = trim((string)($r['vehicle_year'] ?? ''));
+        $car   = trim($brand . ' ' . $model . ' ' . $year);
+
+        $cond_raw = trim((string)($r['vehicle_condition'] ?? ''));
+        if ($cond_raw === '') {
+            $cond = '<span class="lr-dim">—</span>';
+        } elseif (strcasecmp($cond_raw, 'Running') === 0) {
+            $cond = '<span class="lr-op">operable</span>';
+        } else {
+            $cond = '<span class="lr-inop">inop</span>';
+        }
+
+        $ship = trim((string)($r['est_ship_date'] ?? ''));
+
+        $line2 = [];
+        if ($car !== '') {
+            $line2[] = esc_html($car);
+        }
+        $line2[] = $cond;
+        if ($ship !== '') {
+            $line2[] = esc_html__('ship', 'leadrouter') . ' ' . esc_html(substr($ship, 5));
+        }
+
+        return '<div class="lr-c-route" title="' . esc_attr(wp_strip_all_tags($from) . ' → ' . wp_strip_all_tags($to)) . '">'
+            . $from . '<span class="lr-arrow">→</span>' . $to . '</div>'
+            . '<div class="lr-c-veh">' . implode(' · ', $line2) . '</div>';
+    }
+
+    /** Створено + час відправки в одній комірці */
+    protected function render_when_compact($r)
+    {
+        $created = trim((string)($r['created_at'] ?? ''));
+        $sent    = trim((string)($r['sent_at'] ?? ''));
+
+        if ($created === '') {
+            return '<span class="lr-dim">—</span>';
+        }
+
+        $out = '<div class="lr-c-when" title="' . esc_attr($this->fmt_dt($created)) . '">'
+            . '<b>' . esc_html(substr($created, 5, 5)) . '</b>'
+            . esc_html(substr($created, 11, 5));
+
+        if ($sent !== '' && $sent !== '0000-00-00 00:00:00') {
+            $out .= '<span class="lr-c-sent" title="' . esc_attr($this->fmt_dt($sent)) . '">→ '
+                . esc_html(substr($sent, 11, 5)) . '</span>';
+        }
+
+        return $out . '</div>';
+    }
+
+    /**
+     * Група + ПОВНИЙ перелік партнерів чіпами. Обрізки немає навмисно:
+     * менеджеру треба бачити всіх, кому пішов лід, а не перших трьох.
+     */
+    protected function render_partners_chips($item)
+    {
+        $agg = $item['_lr_send_agg'] ?? null;
+        if (!is_array($agg) || empty($agg['groups'])) {
+            return '<span class="lr-dim">—</span>';
+        }
+
+        $out = '<div class="lr-c-gwp">';
+
+        foreach ($agg['groups'] as $g) {
+            $gid    = (int)($g['group_id'] ?? 0);
+            $gtitle = $gid ? $this->get_group_title($gid) : __('Group #0', 'leadrouter');
+            $count  = is_array($g['partners'] ?? null) ? count($g['partners']) : 0;
+
+            $out .= '<div class="lr-c-grp"><span class="lr-c-gname">' . esc_html($gtitle) . '</span>'
+                . '<span class="lr-c-gcnt">· ' . (int)$count . '</span></div>';
+
+            if ($count > 0) {
+                $out .= '<div class="lr-c-chips">';
+                foreach ($g['partners'] as $p) {
+                    $pid    = (int)($p['partner_id'] ?? 0);
+                    $ptitle = $pid ? $this->get_partner_title($pid) : ('Partner #' . $pid);
+                    $status = (string)($p['status'] ?? '');
+                    $is_ok  = in_array($status, ['success', 'sent', 'accepted'], true);
+
+                    $out .= '<span class="lr-chip ' . ($is_ok ? 'is-ok' : 'is-err') . '" title="'
+                        . esc_attr($ptitle . ($status !== '' ? ' — ' . $status : '')) . '">'
+                        . esc_html($ptitle) . '</span>';
+                }
+                $out .= '</div>';
+            }
+        }
+
+        return $out . '</div>';
+    }
+
+    /** Статус чіпом, під ним — копії (колонка «Копії» в компактному не потрібна) */
+    protected function render_status_copies($r)
+    {
+        $id     = (int)($r['id'] ?? 0);
+        $status = (string)($r['status'] ?? '');
+        $target = (int)($r['copies_target'] ?? 1);
+        $sold   = (int)($r['copies_sold'] ?? 0);
+
+        $map = [
+            'new'          => ['is-mut',  __('New', 'leadrouter')],
+            'sent'         => ['is-ok',   __('Sent', 'leadrouter')],
+            'processed'    => ['is-ok',   __('Sent', 'leadrouter')],
+            'await'        => ['is-warn', __('Await', 'leadrouter')],
+            'sent_partial' => ['is-warn', __('Partial', 'leadrouter')],
+            'error'        => ['is-err',  __('Error', 'leadrouter')],
+            'state_error'  => ['is-mut',  __('AK/HI', 'leadrouter')],
+            'expired'      => ['is-err',  __('Expired', 'leadrouter')],
+        ];
+
+        // дубль лишається зі статусом error — відрізняється лише підписом
+        $is_dup = ($status === 'error' && ($r['last_error_code'] ?? '') === 'duplicate_lead');
+        [$cls, $label] = $is_dup
+            ? ['is-mut', __('Duplicate', 'leadrouter')]
+            : ($map[$status] ?? ['is-mut', $status !== '' ? $status : '—']);
+
+        $out = '<div class="lr-c-status">';
+        $out .= '<span class="lr-pill ' . esc_attr($cls) . '">' . esc_html($label) . '</span>';
+
+        if ($is_dup) {
+            $origin = $this->duplicate_origin($id);
+            if ($origin !== null) {
+                $origin_url = add_query_arg(
+                    ['page' => 'leadrouter-leads', 's' => (int)$origin['lead_id']],
+                    admin_url('admin.php')
+                );
+                $out .= '<span class="lr-c-note">' . esc_html__('дубль', 'leadrouter')
+                    . ' <a href="' . esc_url($origin_url) . '">#' . (int)$origin['lead_id'] . '</a>'
+                    . ' · ' . esc_html((string)$origin['matched_by']) . '</span>';
+            }
+        }
+
+        if ($target > 1) {
+            $dots = '';
+            for ($i = 0; $i < $target; $i++) {
+                $dots .= '<span class="lr-dot' . ($i < $sold ? ' is-on' : '') . '"></span>';
+            }
+
+            $out .= '<div class="lr-c-copies"><b>' . $sold . '/' . $target . '</b> '
+                . esc_html__('копій', 'leadrouter')
+                . '<span class="lr-dots">' . $dots . '</span></div>';
+        }
+
+        return $out . '</div>';
+    }
+
+    /**
+     * Дії компактного режиму: три іконки в один ряд — відправити, логи,
+     * видалити. Окремої колонки «Send to» немає: селект із кнопкою Send
+     * лежить у тій самій комірці, згорнутий у поповер під іконкою ➤.
+     *
+     * Важливо: сама розмітка контролу — та сама render_send_control(), тобто
+     * ті самі .lr-broadcast-inline / .lr-group-select / .lr-broadcast-btn.
+     * Усі обробники в admin.js делеговані на document, тож від того, що
+     * контрол схований до кліку, нічого не ламається.
+     */
+    protected function render_actions_compact($item)
+    {
+        $lead_id = (int)($item['id'] ?? 0);
+        if ($lead_id <= 0) {
+            return '';
+        }
+
+        $out = '<div class="lr-c-actions">';
+
+        // ── відправити: іконка + поповер із наявним контролом ──
+        $out .= '<div class="lr-c-send">';
+        $out .= '<button type="button" class="lr-c-icon lr-c-send-toggle" data-lead-id="' . $lead_id . '"'
+            . ' title="' . esc_attr__('Відправити', 'leadrouter') . '"'
+            . ' aria-label="' . esc_attr__('Відправити', 'leadrouter') . '" aria-expanded="false">'
+            . '<span class="dashicons dashicons-arrow-right-alt"></span></button>';
+        $out .= '<div class="lr-c-send-pop" hidden>' . $this->render_send_control($item) . '</div>';
+        $out .= '</div>';
+
+        // ── логи ──
+        $out .= '<button type="button" class="lr-c-icon lr-view-logs" data-lead-id="' . $lead_id . '"'
+            . ' title="' . esc_attr__('Логи', 'leadrouter') . '" aria-label="' . esc_attr__('Логи', 'leadrouter') . '">'
+            . '<span class="dashicons dashicons-list-view"></span></button>';
+
+        // ── видалити ──
+        $out .= '<button type="button" class="lr-c-icon is-danger lr-lead-delete" data-lead-id="' . $lead_id . '"'
+            . ' title="' . esc_attr__('Видалити лід', 'leadrouter') . '" aria-label="' . esc_attr__('Видалити лід', 'leadrouter') . '">'
+            . '<span class="dashicons dashicons-trash"></span></button>';
+
+        return $out . '</div>';
     }
 
     protected function get_group_title($group_id)
@@ -590,21 +1158,11 @@ class LeadRouter_Leads_Table extends WP_List_Table
         $lead_id = (int)($item['id'] ?? 0);
         if ($lead_id <= 0) return '';
 
-        $groups = $this->get_groups_for_select();
-
         $out = '<div class="lr-broadcast-inline" data-lead-id="' . esc_attr($lead_id) . '">';
 
-        // Select
+        // Select: In flow / групи / партнери (значення партнера — "p:ID")
         $out .= '<div class="md_flex"><select class="lr-group-select" data-lead-id="' . esc_attr($lead_id) . '">';
-        $out .= '<option value="0">' . esc_html__('In flow', 'leadrouter') . '</option>';
-
-        foreach ($groups as $g) {
-            $gid = (int)($g->ID ?? 0);
-            if ($gid <= 0) continue;
-
-            $title = !empty($g->post_title) ? (string)$g->post_title : ('Group #' . $gid);
-            $out .= '<option value="' . esc_attr($gid) . '">' . esc_html($title) . '</option>';
-        }
+        $out .= $this->render_send_select_options();
 
         $out .= '</select>';
 
@@ -621,6 +1179,79 @@ class LeadRouter_Leads_Table extends WP_List_Table
         return $out;
     }
 
+
+    /**
+     * Опції селекта відправки: In flow / групи / партнери.
+     * Значення групи — post_id, партнера — "p:<post_id>" (парсить JS).
+     */
+    protected function render_send_select_options(): string
+    {
+        $out = '<option value="0">' . esc_html__('In flow', 'leadrouter') . '</option>';
+
+        $out .= '<optgroup label="' . esc_attr__('Групи', 'leadrouter') . '">';
+        foreach ($this->get_groups_for_select() as $g) {
+            $gid = (int)($g->ID ?? 0);
+            if ($gid <= 0) continue;
+            $title = !empty($g->post_title) ? (string)$g->post_title : ('Group #' . $gid);
+            $out .= '<option value="' . esc_attr($gid) . '">' . esc_html($title) . '</option>';
+        }
+        $out .= '</optgroup>';
+
+        $partners = $this->get_partners_for_select();
+        if (!empty($partners)) {
+            $out .= '<optgroup label="' . esc_attr__('Партнери', 'leadrouter') . '">';
+            foreach ($partners as $p) {
+                $out .= '<option value="p:' . (int)$p['id'] . '">'
+                    . esc_html($p['group'] . ': ' . $p['title'])
+                    . '</option>';
+            }
+            $out .= '</optgroup>';
+        }
+
+        return $out;
+    }
+
+    /** Активні опубліковані партнери для селекта, згруповані за назвою групи */
+    protected function get_partners_for_select(): array
+    {
+        static $cache = null;
+        if ($cache !== null) {
+            return $cache;
+        }
+
+        $group_titles = [];
+        foreach ($this->get_groups_for_select() as $g) {
+            $group_titles[(int)$g->ID] = !empty($g->post_title) ? (string)$g->post_title : ('Group #' . (int)$g->ID);
+        }
+
+        $posts = get_posts([
+            'post_type'      => 'leadrouter_partner',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'orderby'        => 'title',
+            'order'          => 'ASC',
+            'meta_query'     => [
+                ['key' => '_leadrouter_partner_active', 'value' => '1'],
+            ],
+        ]);
+
+        $rows = [];
+        foreach ($posts as $p) {
+            $gid = (int)get_post_meta($p->ID, '_leadrouter_partner_group', true);
+            $rows[] = [
+                'id'    => (int)$p->ID,
+                'title' => $p->post_title !== '' ? (string)$p->post_title : ('Partner #' . (int)$p->ID),
+                'group' => $group_titles[$gid] ?? ($gid > 0 ? ('Group #' . $gid) : '—'),
+            ];
+        }
+
+        usort($rows, function ($a, $b) {
+            $cmp = strnatcasecmp($a['group'], $b['group']);
+            return $cmp !== 0 ? $cmp : strnatcasecmp($a['title'], $b['title']);
+        });
+
+        return $cache = $rows;
+    }
 
     protected function get_groups_for_select()
     {
@@ -730,7 +1361,7 @@ class LeadRouter_Leads_Table extends WP_List_Table
         $table      = $wpdb->prefix . 'leadrouter_leads';
         $send_table = $wpdb->prefix . 'leadrouter_send_log';
 
-        $per_page     = $this->get_items_per_page('leadrouter_leads_per_page', 20);
+        $per_page     = self::per_page();
         $current_page = max(1, (int)$this->get_pagenum());
         $offset       = ($current_page - 1) * $per_page;
 
@@ -1518,13 +2149,15 @@ class LeadRouter_Leads_Table extends WP_List_Table
     {
         // під себе можеш скоригувати/розширити
         return [
-            ''         => 'All statuses',
+            ''             => 'All statuses',
             //'new'      => 'new',
             //'assigned' => 'assigned',
-            'sent'     => 'sent',
-            'failed'   => 'failed',
-            'error'    => 'error',
-            'await'    => 'await',
+            'sent'         => 'sent',
+            'sent_partial' => 'sent_partial',
+            'failed'       => 'failed',
+            'error'        => 'error',
+            'await'        => 'await',
+            'expired'      => 'expired',
         ];
     }
 

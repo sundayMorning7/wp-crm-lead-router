@@ -17,7 +17,9 @@ add_action('admin_post_leadrouter_toggle_group_active', function() {
     }
     global $wpdb;
     $table = $wpdb->prefix . 'leadrouter_groups';
-    $wpdb->update($table, ['active' => $set_active, 'updated_at' => current_time('mysql', 1)], ['id' => $group_id]);
+    // updated_at — строго EST: цю колонку читає reset_eff_if_new_day() як дату
+    // «останнього дня». GMT-час тут міг зсунути дату вперед і скинути eff серед дня.
+    $wpdb->update($table, ['active' => $set_active, 'updated_at' => leadrouter_now_mysql_est()], ['id' => $group_id]);
     // Редирект обратно на страницу групп
     $redirect = admin_url('admin.php?page=leadrouter');
     wp_safe_redirect($redirect);

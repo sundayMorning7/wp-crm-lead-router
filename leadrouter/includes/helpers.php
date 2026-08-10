@@ -2,6 +2,19 @@
 
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Поточний час у таймзоні плагіна (EST) у форматі MySQL DATETIME.
+ *
+ * Усі денні вікна LeadRouter (квоти груп, ліміти партнерів, скидання eff)
+ * рахуються в America/New_York. Раніше частина записів робилась через
+ * current_time('mysql'), тобто залежала від налаштування таймзони сайту —
+ * достатньо змінити Settings → General, щоб вікна розʼїхались із даними.
+ */
+function leadrouter_now_mysql_est(): string
+{
+    return (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('Y-m-d H:i:s');
+}
+
 function leadrouter_recalc_sum_weight($post = null)
 {
 
@@ -37,6 +50,14 @@ function leadrouter_recalc_sum_weight($post = null)
         return false;
     }
 
+    // Група в кошику або видалена: не перераховуємо і, головне, не даємо
+    // upsert-у нижче створити для неї НОВИЙ рядок active=1 (перерахунок міг
+    // прилетіти від неактивного партнера, що досі вказує на стару групу)
+    $group_post = get_post($group_id);
+    if (!$group_post || $group_post->post_type !== 'leadrouter_group' || $group_post->post_status === 'trash') {
+        return false;
+    }
+
 
 
 
@@ -65,6 +86,25 @@ function leadrouter_recalc_sum_weight($post = null)
     $days_weight = array_fill(1, 7, 0);
     $days = [1 => 'mon', 2 => 'tue', 3 => 'wed', 4 => 'thu', 5 => 'fri', 6 => 'sat', 7 => 'sun'];
 
+    // Shared-група: вага дня = денний обсяг L (скільки лідів вона має отримати),
+    // а не MAX ліміту партнерів — ліміти партнерів там дають N × L продажів.
+    $group_settings = class_exists('LR_Shared_Sync')
+        ? LR_Shared_Sync::get_group_settings($group_id)
+        : ['mode' => 'classic'];
+
+    if (($group_settings['mode'] ?? 'classic') === 'shared') {
+        $L = (int)($group_settings['daily_volume'] ?? 0);
+        $days_weight = array_fill(1, 7, max(0, $L));
+
+        $name = get_the_title($group_id) ?: ('Group #' . $group_id);
+        // active = null: перерахунок ваг не чіпає вимикач групи. Літерал 1 тут
+        // мовчки вмикав групу, вимкнену тумблером, при будь-якій правці лімітів.
+        // Новий рядок (INSERT) все одно створюється активним — DEFAULT 1 у схемі.
+        leadrouter_save_group_day_weights_by_post($group_id, $days_weight, $name, null);
+
+        return $days_weight;
+    }
+
     foreach ($partners as $pid) {
         $pid = (int)$pid;
         foreach ($days as $i => $day) {
@@ -76,10 +116,12 @@ function leadrouter_recalc_sum_weight($post = null)
         }
     }
 
-    $active = (int) get_post_meta($group_id, '_leadrouter_group_active', true);
     $name = get_the_title($group_id) ?: ('Group #' . $group_id);
 
-    leadrouter_save_group_day_weights_by_post($group_id, $days_weight, $name, 1);
+    // active = null — див. коментар у shared-гілці вище. ($active з мета
+    // _leadrouter_group_active прибрано: ця мета не існує в жодної групи,
+    // читалась завжди в 0 і нікуди не передавалась.)
+    leadrouter_save_group_day_weights_by_post($group_id, $days_weight, $name, null);
 
     return $days_weight; // корисно повертати, щоб можна було логувати/тестувати
 
@@ -105,6 +147,10 @@ function leadrouter_save_group_day_weights_by_post(int $post_id, array $days_wei
         $days_weight[$i] = isset($days_weight[$i]) ? (int)$days_weight[$i] : 0;
     }
 
+    if ($name === null) {
+        $name = get_the_title($post_id) ?: ('Group #' . $post_id);
+    }
+
     $data_common = [
         'weight_1' => $days_weight[1],
         'weight_2' => $days_weight[2],
@@ -113,14 +159,21 @@ function leadrouter_save_group_day_weights_by_post(int $post_id, array $days_wei
         'weight_5' => $days_weight[5],
         'weight_6' => $days_weight[6],
         'weight_7' => $days_weight[7],
-        'updated_at' => current_time('mysql'),
+        // EST: цю колонку читає reset_eff_if_new_day() як дату «останнього дня»
+        'updated_at' => leadrouter_now_mysql_est(),
+        // Назву оновлюємо і на UPDATE. Раніше вона писалась лише при INSERT, тож
+        // після перейменування групи в таблиці назавжди лишалась стара назва —
+        // і саме її показували панель балансування, вкладка «Резервні групи»
+        // та логи диспетчера (group_name).
+        'name' => $name,
     ];
 
     if ($active !== null) {
         $data_common['active'] = (int)$active;
     }
 
-    $formats_common = ['%d','%d','%d','%d','%d','%d','%d','%s'];
+    // Порядок форматів має збігатися з порядком ключів у $data_common
+    $formats_common = ['%d','%d','%d','%d','%d','%d','%d','%s','%s'];
     if ($active !== null) {
         $formats_common[] = '%d';
     }
@@ -141,16 +194,10 @@ function leadrouter_save_group_day_weights_by_post(int $post_id, array $days_wei
     }
 
 
-    if ($name === null) {
-        $name = get_the_title($post_id) ?: ('Group #' . $post_id);
-    }
+    // 'name' уже є в $data_common — тут лише прив'язка до поста
+    $insert_data = array_merge(['post_id' => $post_id], $data_common);
 
-    $insert_data = array_merge([
-        'post_id' => $post_id,
-        'name' => $name,
-    ], $data_common);
-
-    $insert_formats = array_merge(['%d', '%s'], $formats_common);
+    $insert_formats = array_merge(['%d'], $formats_common);
 
     $inserted = $wpdb->insert($table, $insert_data, $insert_formats);
     return $inserted !== false;
@@ -187,6 +234,54 @@ function leadrouter_normalize_phone(?string $raw, array $opts = [])
     }
 
     return $digits;
+}
+
+/**
+ * Значення для колонки leads.phone_norm (анти-дубль).
+ * Лише цифри, беремо останні 10; коротший номер — як є; порожній → NULL.
+ * На відміну від leadrouter_normalize_phone() нічого не валідує і не
+ * повертає WP_Error — це просто ключ для пошуку дублів.
+ */
+function leadrouter_phone_norm_value($raw): ?string
+{
+    $digits = preg_replace('/\D+/', '', (string)$raw);
+    if ($digits === '' || $digits === null) {
+        return null;
+    }
+    if (strlen($digits) > 10) {
+        $digits = substr($digits, -10);
+    }
+
+    return $digits;
+}
+
+/**
+ * Значення для колонки leads.email_norm (анти-дубль): lower + trim.
+ * Порожній → NULL. Обрізаємо до 191 символу — розмір колонки.
+ */
+function leadrouter_email_norm_value($raw): ?string
+{
+    $email = strtolower(trim((string)$raw));
+    if ($email === '') {
+        return null;
+    }
+    if (strlen($email) > 191) {
+        $email = substr($email, 0, 191);
+    }
+
+    return $email;
+}
+
+/**
+ * Пара нормалізованих колонок для INSERT у leads.
+ * Використовується в усіх місцях, де створюється лід.
+ */
+function leadrouter_lead_norm_columns($phone, $email): array
+{
+    return [
+        'phone_norm' => leadrouter_phone_norm_value($phone),
+        'email_norm' => leadrouter_email_norm_value($email),
+    ];
 }
 
 /**

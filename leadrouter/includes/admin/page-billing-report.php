@@ -11,6 +11,10 @@
  *   COUNT(DISTINCT lead_id) на рівні групи (дедуплікація лідів, що пішли кільком
  *   партнерам однієї групи) + SUM(-amount) як дохід.
  *
+ * Група транзакції — t.group_id, зафіксована В МОМЕНТ списання (з 1.9.1);
+ * переміщення партнера між групами не переписує історію. Старі рядки без
+ * групи читаються через fallback на поточну мету партнера.
+ *
  * Колонки-групи генеруються динамічно: лише групи, що мають відправлені ліди
  * (spend) за поточний місяць. Групи з 0 лідів і групу «для помилкових статусів»
  * (налаштування leadrouter_error_group_id) у звіт не виводимо.
@@ -599,16 +603,21 @@ if (!class_exists('LR_Billing_Report')) {
             $end_date   = $today->format('Y-m-d');
 
             // 1) Основна агрегація: ліди/дохід по днях і групах (type='spend').
+            //    Група — насамперед t.group_id, ЗАФІКСОВАНА в момент списання
+            //    (міграція 1.9.1): переміщення партнера між групами більше не
+            //    переписує історію заднім числом. Для рядків без групи (старі
+            //    транзакції, які не вдалося backfill-нути) — fallback на поточну
+            //    мету партнера, як було раніше.
             //    COUNT(DISTINCT lead_id) на рівні групи коректно дедуплікує лід,
             //    що пішов кільком партнерам однієї групи.
             $agg_rows = $wpdb->get_results(
                 $wpdb->prepare(
                     "SELECT DATE(t.created_at)        AS d,
-                            pm.meta_value             AS group_id,
+                            COALESCE(NULLIF(t.group_id, 0), pm.meta_value, 0) AS group_id,
                             COUNT(DISTINCT t.lead_id) AS leads,
                             SUM(-t.amount)            AS sales
                        FROM {$t_tx} t
-                       JOIN {$wpdb->postmeta} pm
+                       LEFT JOIN {$wpdb->postmeta} pm
                          ON pm.post_id = t.partner_id
                         AND pm.meta_key = %s
                       WHERE t.type = 'spend'

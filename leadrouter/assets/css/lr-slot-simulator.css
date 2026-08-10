@@ -1,0 +1,482 @@
+/* Симулятор слотів (LeadRouter → Симулятор слотів)
+   Візуальна мова — та сама, що в панелі балансування (LR_Balance_Panel):
+   білі картки з радіусом 12, overline + великий заголовок + muted-підзаголовок,
+   метрики з вертикальними роздільниками, тонкі смужки-прогреси. */
+
+.lr-sim {
+    --lrs-border: #e5e7eb;
+    --lrs-text: #111827;
+    --lrs-muted: #6b7280;
+    --lrs-faint: #9ca3af;
+    --lrs-green: #1e8a52;
+    --lrs-green-soft: #16a34a;
+    --lrs-red: #dc2626;
+    --lrs-amber: #d97706;
+    --lrs-track: #e5e7eb;
+    --lrs-violet: #7c3aed;
+
+    color: var(--lrs-text);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.lr-sim *,
+.lr-sim *::before,
+.lr-sim *::after {
+    box-sizing: border-box;
+}
+
+.lr-sim .lr-sim-note {
+    max-width: 900px;
+    color: var(--lrs-muted);
+    font-size: 12px;
+    margin: 4px 0 16px;
+}
+
+/* ── картки ── */
+
+.lr-sim-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: stretch;
+}
+
+.lr-sim-card {
+    background: #fff;
+    border: 1px solid var(--lrs-border);
+    border-radius: 12px;
+    padding: 18px 20px 20px;
+}
+
+.lr-sim-card-params {
+    flex: 0 0 400px;
+}
+
+.lr-sim-card-partners {
+    flex: 1 1 620px;
+    min-width: 520px;
+}
+
+.lr-sim-card-result,
+.lr-sim-card-sim {
+    margin-top: 16px;
+}
+
+/* ── шапка блоку ── */
+
+.lr-sim-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--lrs-border);
+}
+
+.lr-sim-overline {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--lrs-green-soft);
+    margin-bottom: 2px;
+}
+
+.lr-sim-card-sim .lr-sim-overline {
+    color: var(--lrs-violet);
+}
+
+.lr-sim .lr-sim-title {
+    margin: 0;
+    padding: 0;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--lrs-text);
+}
+
+.lr-sim-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--lrs-muted);
+    max-width: 780px;
+}
+
+.lr-sim .lr-sim-subhead {
+    margin: 0 0 8px;
+    padding: 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--lrs-faint);
+}
+
+.lr-sim-section {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #f3f4f6;
+}
+
+/* ── підвантаження реальної групи ── */
+
+.lr-sim-load {
+    border-bottom: 1px solid var(--lrs-border);
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+}
+
+.lr-sim-load > label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--lrs-faint);
+    margin-bottom: 6px;
+}
+
+.lr-sim-load-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.lr-sim-load-row select {
+    max-width: 100%;
+    border-radius: 6px;
+}
+
+.lr-sim-load-notes {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--lrs-muted);
+}
+
+.lr-sim-load-notes p {
+    margin: 0 0 4px;
+}
+
+.lr-sim-load-notes.lr-lv-ok p:first-child {
+    color: var(--lrs-green);
+    font-weight: 600;
+}
+
+.lr-sim-load-notes.lr-lv-warning p:first-child {
+    color: var(--lrs-amber);
+    font-weight: 600;
+}
+
+.lr-sim-load-notes.lr-lv-error p {
+    color: var(--lrs-red);
+    font-weight: 600;
+}
+
+/* ── параметри ── */
+
+.lr-sim-params {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.lr-sim-params label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--lrs-muted);
+}
+
+.lr-sim-params input[type="number"] {
+    width: 80px;
+    border-radius: 6px;
+}
+
+.lr-sim-win,
+.lr-sim-vol {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.lr-sim-win input {
+    width: 60px !important;
+}
+
+.lr-sim-vol output {
+    min-width: 44px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+}
+
+.lr-sim-manual-toggle {
+    margin: 14px 0 6px;
+    font-size: 12px;
+    color: var(--lrs-muted);
+}
+
+.lr-sim-manual {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+}
+
+.lr-sim-hour {
+    display: flex;
+    flex-direction: column;
+    font-size: 11px;
+    color: var(--lrs-faint);
+}
+
+.lr-sim-hour input {
+    width: 100%;
+    padding: 2px 4px;
+    border-radius: 6px;
+}
+
+/* ── таблиця партнерів ── */
+
+.lr-sim-table {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.lr-sim-table input[type="text"],
+.lr-sim-table input[type="number"] {
+    width: 100%;
+    border-radius: 6px;
+}
+
+.lr-sim-table td,
+.lr-sim-table th {
+    padding: 4px 6px;
+}
+
+.lr-sim-table .lr-c-num {
+    width: 90px;
+}
+
+.lr-sim-table .lr-c-act {
+    width: 90px;
+    white-space: nowrap;
+}
+
+.lr-sim-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0 6px;
+    flex-wrap: wrap;
+}
+
+.lr-sim-bulk {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.lr-sim-bulk input {
+    width: 70px;
+    border-radius: 6px;
+}
+
+.lr-sim-hint {
+    color: var(--lrs-faint);
+    font-size: 12px;
+    margin: 12px 0 0;
+    max-width: 900px;
+}
+
+.lr-sim-empty {
+    color: var(--lrs-muted);
+    margin: 4px 0;
+}
+
+/* ── результат ── */
+
+.lr-sim-busy {
+    display: inline-block;
+    padding: 2px 10px;
+    border: 1px solid var(--lrs-border);
+    border-radius: 999px;
+    background: #fff;
+    font-size: 12px;
+    color: var(--lrs-muted);
+}
+
+.lr-sim-busy-error {
+    border-color: var(--lrs-red);
+    color: var(--lrs-red);
+    font-weight: 600;
+}
+
+.lr-sim-hints {
+    margin: 14px 0 0;
+    padding: 12px 16px;
+    background: #f9fafb;
+    border: 1px solid var(--lrs-border);
+    border-radius: 10px;
+}
+
+.lr-sim-hints > strong {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--lrs-faint);
+}
+
+.lr-sim-hints ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    list-style: disc;
+    color: var(--lrs-muted);
+}
+
+/* метрики — як .lr-bp-summary: значення в ряд, роздільники між ними */
+
+.lr-sim-metrics {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+    margin: 0 0 4px;
+}
+
+.lr-sim-metric {
+    padding: 2px 24px;
+    border-left: 1px solid var(--lrs-border);
+    max-width: 380px;
+}
+
+.lr-sim-metric:first-child {
+    border-left: 0;
+    padding-left: 0;
+}
+
+.lr-sim-metric-title {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--lrs-faint);
+    white-space: nowrap;
+}
+
+.lr-sim-metric-value {
+    display: block;
+    margin-top: 2px;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.lr-sim-metric.lr-tone-ok .lr-sim-metric-value {
+    color: var(--lrs-green);
+}
+
+.lr-sim-metric.lr-tone-warn .lr-sim-metric-value {
+    color: var(--lrs-amber);
+}
+
+.lr-sim-metric-sub {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--lrs-muted);
+}
+
+/* висновки */
+
+.lr-sim-findings {
+    margin-top: 16px;
+}
+
+.lr-sim-findings p {
+    margin: 0 0 6px;
+    padding: 9px 14px;
+    border: 1px solid var(--lrs-border);
+    border-left: 3px solid var(--lrs-faint);
+    border-radius: 8px;
+    background: #f9fafb;
+    color: var(--lrs-muted);
+}
+
+.lr-sim-findings p.lr-lv-error {
+    border-left-color: var(--lrs-red);
+    background: #fef2f2;
+    color: #7f1d1d;
+}
+
+.lr-sim-findings p.lr-lv-warning {
+    border-left-color: var(--lrs-amber);
+    background: #fffbeb;
+    color: #78350f;
+}
+
+.lr-sim-findings p.lr-lv-ok {
+    border-left-color: var(--lrs-green-soft);
+    background: #f0fdf4;
+    color: #14532d;
+}
+
+.lr-sim-hints li.lr-lv-error,
+td.lr-lv-error,
+span.lr-lv-error {
+    color: var(--lrs-red);
+    font-weight: 600;
+}
+
+.lr-sim-hints li.lr-lv-warning,
+td.lr-lv-warning {
+    color: var(--lrs-amber);
+    font-weight: 600;
+}
+
+/* таблиці звіту */
+
+.lr-sim-report,
+.lr-sim-hours {
+    max-width: 1100px;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.lr-sim-report th,
+.lr-sim-hours th {
+    font-size: 11px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--lrs-faint);
+}
+
+.lr-sim-report .lr-c-num,
+.lr-sim-hours .lr-c-num {
+    text-align: right;
+    width: 110px;
+    font-variant-numeric: tabular-nums;
+}
+
+.lr-sim-hours .lr-c-bar {
+    width: 220px;
+}
+
+.lr-sim-hours .lr-c-bar span {
+    display: block;
+    height: 6px;
+    background: var(--lrs-green);
+    border-radius: 999px;
+    min-width: 1px;
+}
+
+.lr-sim-dim {
+    color: var(--lrs-faint);
+}

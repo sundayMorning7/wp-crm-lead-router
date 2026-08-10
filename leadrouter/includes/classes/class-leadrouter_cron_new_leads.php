@@ -12,6 +12,9 @@ if (!class_exists('LeadRouter_Cron_New_Leads')) {
         const STATUS_FAIL = 'error';      // якщо впало
         const STATUS_START_ID    = 1;
 
+        /** Вікно пошуку дублів за замовчуванням, у добах (EST) */
+        const DUPLICATE_WINDOW_DAYS = 30;
+
         public static function init()
         {
             add_filter('cron_schedules', [__CLASS__, 'add_every_minute_schedule']);
@@ -99,6 +102,19 @@ if (!class_exists('LeadRouter_Cron_New_Leads')) {
                 return;
             }
 
+            // 1.1) Анти-дубль по телефону/email. Вимкнено за замовчуванням —
+            // при вимкненому чекбоксі жодного запиту в БД не робимо.
+            if (self::duplicate_check_enabled()) {
+                $dup = self::find_duplicate_origin($lead);
+                if ($dup !== null) {
+                    self::mark_as_duplicate($lead_id, $dup);
+                    // далі лід сам підхопить крон помилкових лідів і відвезе
+                    // його у «Групу для помилкових статусів»
+                    delete_transient(self::LOCK_KEY);
+                    return;
+                }
+            }
+
            // 2) відмічаємо, що його вже обробляємо
 
 
@@ -122,6 +138,169 @@ if (!class_exists('LeadRouter_Cron_New_Leads')) {
 
 
             delete_transient(self::LOCK_KEY);
+        }
+
+        /* ===================== АНТИ-ДУБЛЬ ===================== */
+
+        /**
+         * Публічна перевірка дубля для ручної відправки: НЕ змінює статус ліда,
+         * лише повертає оригінал, щоб UI спитав підтвердження.
+         * null — не дубль, перевірку вимкнено або це test*-лід (як у крона).
+         *
+         * @return array{lead_id:int, matched_by:string}|null
+         */
+        public static function duplicate_probe(int $lead_id): ?array
+        {
+            global $wpdb;
+
+            if ($lead_id <= 0 || !self::duplicate_check_enabled()) {
+                return null;
+            }
+
+            $lead = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}leadrouter_leads WHERE id = %d",
+                $lead_id
+            ), ARRAY_A);
+            if (!$lead) {
+                return null;
+            }
+
+            $name = trim(strtolower((string)($lead['name'] ?? '')));
+            if (strpos($name, 'test') === 0) {
+                return null;
+            }
+
+            return self::find_duplicate_origin($lead);
+        }
+
+        /** Чи увімкнена перевірка дублів (Налаштування → Dispatch) */
+        private static function duplicate_check_enabled(): bool
+        {
+            if (!function_exists('carbon_get_theme_option')) {
+                return false;
+            }
+
+            return (bool) carbon_get_theme_option('leadrouter_duplicate_check_enabled');
+        }
+
+        /** Вікно пошуку дублів у добах (EST) */
+        private static function duplicate_window_days(): int
+        {
+            $days = function_exists('carbon_get_theme_option')
+                ? (int) carbon_get_theme_option('leadrouter_duplicate_window_days')
+                : 0;
+
+            return $days > 0 ? $days : self::DUPLICATE_WINDOW_DAYS;
+        }
+
+        /**
+         * Шукає лід-оригінал за останні N діб: збіг по phone_norm АБО email_norm.
+         *
+         * Два окремі запити замість одного з OR — щоб кожен гарантовано йшов
+         * по своєму індексу (idx_phone_norm / idx_email_norm), без index_merge.
+         *
+         * Оригіналом вважаємо СТАРІШИЙ лід (id менший): інакше два однакові
+         * ліди, що прийшли поспіль, позначили б дублем один одного.
+         *
+         * @return array{lead_id:int, matched_by:string}|null
+         */
+        private static function find_duplicate_origin(array $lead): ?array
+        {
+            global $wpdb;
+
+            $table   = $wpdb->prefix . 'leadrouter_leads';
+            $lead_id = (int)$lead['id'];
+
+            $phone_norm = leadrouter_phone_norm_value($lead['phone'] ?? '');
+            $email_norm = leadrouter_email_norm_value($lead['email'] ?? '');
+
+            // Обидва поля порожні — перевіряти нічого
+            if ($phone_norm === null && $email_norm === null) {
+                return null;
+            }
+
+            // Лід міг бути створений до апгрейду (або в обхід create_lead_simple) —
+            // дозаповнюємо norm-колонки, щоб він теж брав участь у майбутніх перевірках
+            if ((string)($lead['phone_norm'] ?? '') !== (string)$phone_norm
+                || (string)($lead['email_norm'] ?? '') !== (string)$email_norm) {
+                $wpdb->update(
+                    $table,
+                    ['phone_norm' => $phone_norm, 'email_norm' => $email_norm],
+                    ['id' => $lead_id],
+                    ['%s', '%s'],
+                    ['%d']
+                );
+            }
+
+            $since = (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))
+                ->modify('-' . self::duplicate_window_days() . ' days')
+                ->format('Y-m-d H:i:s');
+
+            $checks = [
+                ['col' => 'phone_norm', 'val' => $phone_norm, 'by' => 'phone'],
+                ['col' => 'email_norm', 'val' => $email_norm, 'by' => 'email'],
+            ];
+
+            foreach ($checks as $check) {
+                if ($check['val'] === null || $check['val'] === '') {
+                    continue;
+                }
+
+                $found = (int)$wpdb->get_var(
+                    $wpdb->prepare(
+                        "SELECT id FROM {$table}
+                          WHERE {$check['col']} = %s
+                            AND id < %d
+                            AND created_at >= %s
+                          ORDER BY id DESC
+                          LIMIT 1",
+                        $check['val'],
+                        $lead_id,
+                        $since
+                    )
+                );
+
+                if ($found > 0) {
+                    return ['lead_id' => $found, 'matched_by' => $check['by']];
+                }
+            }
+
+            return null;
+        }
+
+        /**
+         * Позначає лід дублем: статус error (його підбере крон помилкових лідів
+         * і force-відправить у «сміттєву» групу) + подія в leadrouter_logs.
+         *
+         * @param array{lead_id:int, matched_by:string} $dup
+         */
+        private static function mark_as_duplicate(int $lead_id, array $dup): void
+        {
+            global $wpdb;
+
+            $table = $wpdb->prefix . 'leadrouter_leads';
+            $now   = (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('Y-m-d H:i:s');
+
+            $wpdb->update(
+                $table,
+                [
+                    'status'          => self::STATUS_FAIL,
+                    'response_status' => 'duplicate',
+                    'last_error_code' => 'duplicate_lead',
+                    'last_error_at'   => $now,
+                ],
+                ['id' => $lead_id],
+                ['%s', '%s', '%s', '%s'],
+                ['%d']
+            );
+
+            if (class_exists('LeadRouter_Flow')) {
+                LeadRouter_Flow::log_event($lead_id, 'duplicate_detected', [
+                    'duplicate_of_lead_id' => (int)$dup['lead_id'],
+                    'matched_by'           => (string)$dup['matched_by'],
+                    'window_days'          => self::duplicate_window_days(),
+                ]);
+            }
         }
     }
 }
