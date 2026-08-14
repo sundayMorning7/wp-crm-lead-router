@@ -82,6 +82,13 @@ if (!class_exists('LeadRouter_Sender_Light')) {
                 'require_ok_json'=> $require_ok_json,
             ];
 
+            $lead_id_from_context = isset($context['lead_id']) ? (int) $context['lead_id'] : 0;
+            if ($lead_id_from_context > 0) {
+                if (!array_key_exists('lead_id', $our_payload) || $our_payload['lead_id'] === null || $our_payload['lead_id'] === '') {
+                    $our_payload['lead_id'] = $lead_id_from_context;
+                }
+            }
+
             if (empty($endpoint)) {
                 $result['error_code']    = 'endpoint_missing';
                 $result['error_message'] = 'Partner endpoint is not configured';
@@ -138,6 +145,11 @@ if (!class_exists('LeadRouter_Sender_Light')) {
                 case 'header':
                     if (!empty($api_key) && !empty($api_key_header)) {
                         $req['headers'][$api_key_header] = $api_key;
+                    }
+                    break;
+                case 'bearer':
+                    if (!empty($api_key) && !empty($api_key_header)) {
+                        $req['headers'][$api_key_header] = 'Bearer ' . $api_key;
                     }
                     break;
                 case 'query':

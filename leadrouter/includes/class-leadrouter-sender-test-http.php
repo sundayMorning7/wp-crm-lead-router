@@ -34,6 +34,12 @@ function lr_sender_test_http_send(int $partner_id) {
             }
             break;
 
+        case 'bearer':
+            if (!empty($api_key) && !empty($api_key_header)) {
+                $headers[$api_key_header] = 'Bearer ' . $api_key;
+            }
+            break;
+
         case 'query':
             $endpoint = add_query_arg(['apikey' => $api_key], $endpoint);
             break;

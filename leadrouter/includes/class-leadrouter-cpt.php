@@ -641,6 +641,7 @@ function leadrouter_create_custom_fields()
                 ->set_width(25)
                 ->add_options([
                     'header' => 'Header (X-API-Key: ...)',
+                    'bearer' => 'Bearer (Authorization: Bearer ...)',
                     'payload' => 'Payload ("apikey" у тілі)',
                     'payload_authkey' => 'Payload ("AuthKey" у тілі)',
                     'payload_xapikey' => 'Payload ("XAPIKEY" у тілі)',
@@ -779,7 +780,10 @@ function leadrouter_create_custom_fields()
                         'phone_us_dashed'=> 'phone → 111-111-1111',    // ⬅️ нове
                         'map_transport_type' => 'transport_type: 1 → Open, 0 → Closed', // ⬅️ нове
                         'map_transport_type_open_enclosed' => 'transport_type: 1 → Open, 0 → Enclosed', // прод 03.08
-                        'map_transport_type_reverse' => 'transport_type: 0 → 1, 1 → 0' // ⬅️ нове
+                        'map_transport_type_reverse' => 'transport_type: 0 → 1, 1 → 0', // ⬅️ нове
+                        'map_transport_type_navigo' => 'Navigo: ship_via → OPEN/ENCLOSED/DRIVE_AWAY/...',
+                        'map_overseas_type_navigo' => 'Navigo: overseas_type → DOMESTIC/FOREIGN',
+                        'map_vehicle_type_navigo' => 'Navigo: vehicle.type → ATV/BOAT/CAR/MOTORCYCLE/PICKUP/SUV/VAN'
                     ])->set_default_value('none'),
                     Field::make('text', 'default_value', 'Default value')->set_width(25)
                         ->set_help_text('Підставляється, якщо значення порожнє'),
@@ -798,6 +802,7 @@ function leadrouter_create_custom_fields()
                 <option value="capscrm">CapsCRM</option>
                 <option value="onespacecrm">OnespaceCRM</option>
                 <option value="mile_autotransport">Mile-Autotransport</option>
+                <option value="navigocrm">NavigoCRM</option>
                 <option value="door_to_door">Door to Door Transport</option>
             </select>
             <button type="button" class="button button-primary js-lr-apply-map-preset">Застосувати пресет</button>
@@ -1042,6 +1047,33 @@ function lr_partner_carlink_default_map(): array {
         ['our_key' => 'Vehicles.0.vehicle_model',    'their_key' => 'Vehicles.0.model',   'transform' => 'title',     'default_value' => ''],
         ['our_key' => 'Vehicles.0.vehicle_type',     'their_key' => 'Vehicles.0.type',    'transform' => 'title',     'default_value' => 'Car'],
         ['our_key' => 'Vehicles.0.vehicle_inop',     'their_key' => 'Vehicles.0.isInoperable','transform' => 'inop_binary_to_bool', 'default_value' => ''],
+    ];
+}
+
+function lr_partner_navigocrm_default_map(): array {
+    return [
+        ['our_key' => 'lead_id',                    'their_key' => 'external_id',              'transform' => 'int',               'default_value' => ''],
+        ['our_key' => 'first_name',                 'their_key' => 'first_name',               'transform' => 'title',             'default_value' => ''],
+        ['our_key' => 'last_name',                  'their_key' => 'last_name',                'transform' => 'title',             'default_value' => ''],
+        ['our_key' => 'email',                      'their_key' => 'email',                    'transform' => 'lower',             'default_value' => ''],
+        ['our_key' => 'phone',                      'their_key' => 'phone_number',             'transform' => 'digits',              'default_value' => ''],
+        ['our_key' => 'company_name',               'their_key' => 'company_name',             'transform' => 'none',              'default_value' => ''],
+        ['our_key' => 'comment_from_shipper',       'their_key' => 'note_from_shipper',        'transform' => 'none',              'default_value' => ''],
+        ['our_key' => 'origin_postal_code',         'their_key' => 'origin_zip',               'transform' => 'digits',            'default_value' => ''],
+        ['our_key' => 'origin_city',                'their_key' => 'origin_city',              'transform' => 'title',             'default_value' => ''],
+        ['our_key' => 'destination_postal_code',    'their_key' => 'destination_zip',          'transform' => 'digits',            'default_value' => ''],
+        ['our_key' => 'destination_city',           'their_key' => 'destination_city',         'transform' => 'title',             'default_value' => ''],
+        ['our_key' => 'ship_date',                  'their_key' => 'estimated_ship_date',     'transform' => 'date_Ymd',          'default_value' => ''],
+        ['our_key' => 'transport_type',            'their_key' => 'ship_via',                'transform' => 'map_transport_type_navigo', 'default_value' => 'OPEN'],
+        ['our_key' => 'overseas_type',             'their_key' => 'overseas_type',           'transform' => 'none',              'default_value' => 'DOMESTIC'],
+
+        ['our_key' => 'Vehicles.0.vehicle_model_year','their_key' => 'vehicles.0.year',      'transform' => 'int',               'default_value' => ''],
+        ['our_key' => 'Vehicles.0.vehicle_make',    'their_key' => 'vehicles.0.make',          'transform' => 'title',             'default_value' => ''],
+        ['our_key' => 'Vehicles.0.vehicle_model',   'their_key' => 'vehicles.0.model',         'transform' => 'title',             'default_value' => ''],
+        ['our_key' => 'Vehicles.0.vehicle_type',    'their_key' => 'vehicles.0.type',          'transform' => 'map_vehicle_type_navigo', 'default_value' => 'CAR'],
+        ['our_key' => 'Vehicles.0.vehicle_tariff', 'their_key' => 'vehicles.0.tariff',        'transform' => 'int',               'default_value' => '0'],
+        ['our_key' => 'Vehicles.0.vehicle_deposit','their_key' => 'vehicles.0.deposit',       'transform' => 'int',               'default_value' => '0'],
+        ['our_key' => 'Vehicles.0.vehicle_inop',    'their_key' => 'vehicles.0.vehicle_run',   'transform' => 'inop_binary_to_bool_reverse', 'default_value' => 'true'],
     ];
 }
 

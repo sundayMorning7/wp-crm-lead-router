@@ -55,6 +55,9 @@ if (!class_exists('LeadRouter_Transform')) {
                 case 'map_transport_type': return self::mapTransportType($value);
                 case 'map_transport_type_open_enclosed': return self::mapTransportTypeOpenEnclosed($value); // прод 03.08
                 case 'map_transport_type_reverse': return self::toIntOrNull(self::mapTransportTypeReverse($value));
+                case 'map_transport_type_navigo': return self::mapTransportTypeNavigo($value);
+                case 'map_overseas_type_navigo': return self::mapOverseasTypeNavigo($value);
+                case 'map_vehicle_type_navigo': return self::mapVehicleTypeNavigo($value);
             }
         }
 
@@ -91,6 +94,102 @@ if (!class_exists('LeadRouter_Transform')) {
             $v = mb_strtolower(trim((string)$value));
             if ($v === '1' || $v === 1) return 'Open';
             if ($v === '0' || $v === 0) return 'Enclosed';
+            return null;
+        }
+
+        /** NavigoCRM: maps to exact ship_via enum values used by API */
+        protected static function mapTransportTypeNavigo($value): ?string {
+            $v = mb_strtolower(trim((string)$value));
+            if ($v === '') return null;
+
+            $aliases = [
+                '1' => 'OPEN',
+                'open' => 'OPEN',
+                'open carrier' => 'OPEN',
+                '0' => 'ENCLOSED',
+                'closed' => 'ENCLOSED',
+                'enclosed' => 'ENCLOSED',
+                'drive_away' => 'DRIVE_AWAY',
+                'drive-away' => 'DRIVE_AWAY',
+                'container_20ft' => 'CONTAINER_20FT',
+                'container_40ft' => 'CONTAINER_40FT',
+                'shared' => 'SHARED',
+                'rollon_rolloff' => 'ROLLON_ROLLOFF',
+                'roll-on-roll-off' => 'ROLLON_ROLLOFF',
+                'roll_on_roll_off' => 'ROLLON_ROLLOFF',
+            ];
+
+            if (isset($aliases[$v])) return $aliases[$v];
+
+            $normalized = strtoupper(str_replace(['-', ' '], '_', $v));
+            $normalized = preg_replace('/_+/', '_', $normalized);
+            if (in_array($normalized, ['OPEN', 'ENCLOSED', 'DRIVE_AWAY', 'CONTAINER_20FT', 'CONTAINER_40FT', 'SHARED', 'ROLLON_ROLLOFF'], true)) {
+                return $normalized;
+            }
+
+            return null;
+        }
+
+        /** NavigoCRM: maps to overseas_type enum values */
+        protected static function mapOverseasTypeNavigo($value): ?string {
+            $v = mb_strtolower(trim((string)$value));
+            if ($v === '') return null;
+
+            if (in_array($v, ['domestic', 'open', 'enclosed', 'drive_away', 'drive-away'], true)) {
+                return 'DOMESTIC';
+            }
+            if (in_array($v, ['foreign', 'container_20ft', 'container_40ft', 'shared', 'rollon_rolloff', 'roll-on-roll-off', 'roll_on_roll_off'], true)) {
+                return 'FOREIGN';
+            }
+
+            $normalized = strtoupper(str_replace(['-', ' '], '_', $v));
+            if ($normalized === 'OPEN' || $normalized === 'ENCLOSED' || $normalized === 'DRIVE_AWAY') {
+                return 'DOMESTIC';
+            }
+            if ($normalized === 'CONTAINER_20FT' || $normalized === 'CONTAINER_40FT' || $normalized === 'SHARED' || $normalized === 'ROLLON_ROLLOFF') {
+                return 'FOREIGN';
+            }
+
+            return null;
+        }
+
+        /** NavigoCRM: maps vehicle type to exact enum values expected by API */
+        protected static function mapVehicleTypeNavigo($value): ?string {
+            $v = trim((string)$value);
+            if ($v === '') return null;
+
+            $aliases = [
+                'atv' => 'ATV',
+                'quad' => 'ATV',
+                'quad bike' => 'ATV',
+                'boat' => 'BOAT',
+                'car' => 'CAR',
+                'sedan' => 'CAR',
+                'coupe' => 'CAR',
+                'motorcycle' => 'MOTORCYCLE',
+                'bike' => 'MOTORCYCLE',
+                'pickup' => 'PICKUP',
+                'pickup truck' => 'PICKUP',
+                'truck' => 'PICKUP',
+                'suv' => 'SUV',
+                'crossover' => 'SUV',
+                'van' => 'VAN',
+                'minivan' => 'VAN',
+            ];
+
+            $normalized = mb_strtolower($v, 'UTF-8');
+            if (isset($aliases[$normalized])) return $aliases[$normalized];
+
+            $upper = strtoupper($v);
+            if (in_array($upper, ['ATV', 'BOAT', 'CAR', 'MOTORCYCLE', 'PICKUP', 'SUV', 'VAN'], true)) {
+                return $upper;
+            }
+
+            $replaced = str_replace(['-', '_', ' '], '', $upper);
+            if (in_array($replaced, ['ATV', 'BOAT', 'CAR', 'MOTORCYCLE', 'PICKUP', 'SUV', 'VAN'], true)) {
+                return $replaced;
+            }
+
             return null;
         }
                 
